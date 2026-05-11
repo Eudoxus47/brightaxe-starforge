@@ -20,8 +20,16 @@ export function campaignKey() {
   return process.env.STARFORGE_CAMPAIGN_KEY || "campaign:brightaxe";
 }
 
+function redisRestUrl() {
+  return process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+}
+
+function redisRestToken() {
+  return process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+}
+
 export function isRedisConfigured() {
-  return Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+  return Boolean(redisRestUrl() && redisRestToken());
 }
 
 function getRedis() {
@@ -29,7 +37,10 @@ function getRedis() {
     throw new Error("Upstash Redis is not configured.");
   }
   if (!redis) {
-    redis = Redis.fromEnv();
+    redis = new Redis({
+      url: redisRestUrl() as string,
+      token: redisRestToken() as string,
+    });
   }
   return redis;
 }
