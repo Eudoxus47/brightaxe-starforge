@@ -181,15 +181,26 @@ describe("staged monthly resolution", () => {
     expect(explicit?.monthLabel).toBe("Elient 1374 DR");
   });
 
-  it("auto-allocates commission slider hours by priority and caps at remaining work", () => {
+  it("auto-allocates commission slider hours by priority and risk-adjusted completion coverage", () => {
     const plans = allocateCommissionProjectHours(initialCampaignState, 220);
     const byId = Object.fromEntries(plans.map((plan) => [plan.projectId, plan]));
 
-    expect(byId["basenhack-full-plate"].allocatedHours).toBe(166);
-    expect(byId["fairstream-breastplate"].allocatedHours).toBe(54);
+    expect(byId["basenhack-full-plate"].allocatedHours).toBe(139);
+    expect(byId["fairstream-breastplate"].allocatedHours).toBe(81);
     expect(byId["purple-worm-tooth"].allocatedHours).toBe(0);
     expect(byId["iron-doors-mermaid"].allocatedHours).toBe(0);
     expect(plans.filter((plan) => plan.selected).every((plan) => plan.allocatedHours > 0)).toBe(true);
+  });
+
+  it("uses surplus commission slider hours as completion risk coverage", () => {
+    const plans = allocateCommissionProjectHours(initialCampaignState, 660);
+    const byId = Object.fromEntries(plans.map((plan) => [plan.projectId, plan]));
+    const purple = initialCampaignState.projects.find((project) => project.id === "purple-worm-tooth");
+    const ironDoors = initialCampaignState.projects.find((project) => project.id === "iron-doors-mermaid");
+
+    expect(byId["purple-worm-tooth"].allocatedHours).toBeGreaterThan(purple?.requiredHours ?? 0);
+    expect(byId["iron-doors-mermaid"].allocatedHours).toBeGreaterThan(ironDoors?.requiredHours ?? 0);
+    expect(plans.reduce((total, plan) => total + plan.allocatedHours, 0)).toBe(660);
   });
 
   it("distinguishes inventory material variants for display", () => {

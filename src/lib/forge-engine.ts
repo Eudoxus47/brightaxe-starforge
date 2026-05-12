@@ -1022,6 +1022,29 @@ function progressEfficiencyFromCraft(roll: number, total: number, dc: number): n
   return 0.5;
 }
 
+function minimumProgressEfficiencyForProject(state: CampaignState, project: ForgeProject): number {
+  const requirements = getProjectRequirements(project);
+  let minimum = Number.POSITIVE_INFINITY;
+  for (let roll = 1; roll <= 20; roll += 1) {
+    const total = roll + craftBonusForProject(state, project);
+    minimum = Math.min(minimum, progressEfficiencyFromCraft(roll, total, requirements.dc));
+  }
+  return Number.isFinite(minimum) ? minimum : 1;
+}
+
+function completionProtectedHoursForProject(state: CampaignState, project: ForgeProject): number {
+  const requirements = getProjectRequirements(project);
+  const remaining = Math.max(0, requirements.hours - project.hoursInvested);
+  if (remaining === 0) return 0;
+  return Math.ceil(remaining / Math.max(0.25, minimumProgressEfficiencyForProject(state, project)));
+}
+
+function totalProtectedCommissionHours(state: CampaignState): number {
+  return state.projects
+    .filter((project) => project.status === "queued" || project.status === "in_progress")
+    .reduce((total, project) => total + completionProtectedHoursForProject(state, project), 0);
+}
+
 const faerunMonths = [
   "Hammer",
   "Alturiak",
@@ -1091,9 +1114,7 @@ export function allocateCommissionProjectHours(state: CampaignState, commissionH
   const allocation = new Map<string, number>();
 
   for (const { project } of active) {
-    const requirements = getProjectRequirements(project);
-    const remainingProjectHours = Math.max(0, requirements.hours - project.hoursInvested);
-    const assigned = Math.min(remainingPool, remainingProjectHours);
+    const assigned = Math.min(remainingPool, completionProtectedHoursForProject(state, project));
     allocation.set(project.id, assigned);
     remainingPool -= assigned;
   }
@@ -1202,18 +1223,13 @@ export function validateResolutionPlan(state: CampaignState, draft: MonthlyResol
   const selectedProjectHours = selectedPlans(draft).reduce((total, plan) => total + Math.max(0, plan.allocatedHours), 0);
   const totalAvailable = recomputedTotalHours(draft);
   const activeById = new Map(state.projects.map((project) => [project.id, project]));
-  const totalRemainingCommissionHours = state.projects
-    .filter((project) => project.status === "queued" || project.status === "in_progress")
-    .reduce((total, project) => {
-      const requirements = getProjectRequirements(project);
-      return total + Math.max(0, requirements.hours - project.hoursInvested);
-    }, 0);
+  const protectedCommissionHours = totalProtectedCommissionHours(state);
 
   if (selectedProjectHours > draft.allocation.commissionWorkHours) {
     warnings.push("Commission allocation exceeds available commission hours.");
   }
-  if (draft.allocation.commissionWorkHours > totalRemainingCommissionHours) {
-    warnings.push(`${draft.allocation.commissionWorkHours - totalRemainingCommissionHours} commission hours exceed remaining active commission work.`);
+  if (draft.allocation.commissionWorkHours > protectedCommissionHours) {
+    warnings.push(`${draft.allocation.commissionWorkHours - protectedCommissionHours} commission hours exceed protected completion coverage for active commission work.`);
   }
   if (plannedWorkTotal(draft) > totalAvailable) {
     warnings.push("Planned work exceeds total available forge hours.");
