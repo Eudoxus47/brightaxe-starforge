@@ -320,13 +320,12 @@ export default function Home() {
               </button>
             );
           })}
+          <MaterialsInventoryPanel state={state} onUpdateMaterial={updateMaterial} />
         </nav>
 
         <ForgeInventoryBand state={state} onUpdateInventory={updateInventory} />
 
         <ResourcesPanel
-          state={state}
-          onUpdateMaterial={updateMaterial}
           newCommission={newCommission}
           setNewCommission={setNewCommission}
           onAddCommission={addCommission}
@@ -1376,8 +1375,6 @@ function WorkQueue({
 }
 
 function ResourcesPanel({
-  state,
-  onUpdateMaterial,
   newCommission,
   setNewCommission,
   onAddCommission,
@@ -1386,8 +1383,6 @@ function ResourcesPanel({
   onReset,
   importError,
 }: {
-  state: ReturnType<typeof useLocalCampaign>["state"];
-  onUpdateMaterial: (material: MaterialName, value: number) => void;
   newCommission: { client: string; item: string; rewardGp: number; hours: number; craftDc: number };
   setNewCommission: (value: { client: string; item: string; rewardGp: number; hours: number; craftDc: number }) => void;
   onAddCommission: () => void;
@@ -1409,25 +1404,12 @@ function ResourcesPanel({
 
   return (
     <section id="resources" className="resources-panel ornate-panel">
-      <div>
-        <PanelTitle icon={Gem} title="Materials Inventory" />
-        <div className="mini-list">
-          {(Object.entries(state.materials) as Array<[MaterialName, { lbs: number; gpPerLb: number }]>).map(([material, amount]) => (
-            <label key={material} className="editable-row">
-              <span>{material}</span>
-              <input type="number" min="0" value={amount.lbs} onChange={(event) => onUpdateMaterial(material, Number(event.target.value))} />
-              <em>lbs</em>
-            </label>
-          ))}
-        </div>
-      </div>
       <div className="campaign-tools-compact">
         <PanelTitle icon={Settings} title="Campaign Tools" />
-        <AddCommissionForm
-          newCommission={newCommission}
-          setNewCommission={setNewCommission}
-          onAddCommission={onAddCommission}
-        />
+        <button className={`danger-button ${confirmReset ? "armed" : ""}`} onClick={handleReset}>
+          {confirmReset ? "Confirm Reset to Default" : "Reset Simulation"}
+        </button>
+        {confirmReset && <button className="small-button" onClick={() => setConfirmReset(false)}>Cancel Reset</button>}
         <div className="save-actions">
           <button className="small-button" onClick={onExportJson}>
             <Download className="size-4" />
@@ -1441,10 +1423,34 @@ function ResourcesPanel({
         </div>
         <p className="save-note">Shared saves live in Redis online. Save JSON downloads a local backup file.</p>
         {importError && <p className="error-text">{importError}</p>}
-        <button className={`danger-button ${confirmReset ? "armed" : ""}`} onClick={handleReset}>
-          {confirmReset ? "Confirm Reset to Default" : "Reset Simulation"}
-        </button>
-        {confirmReset && <button className="small-button" onClick={() => setConfirmReset(false)}>Cancel Reset</button>}
+        <AddCommissionForm
+          newCommission={newCommission}
+          setNewCommission={setNewCommission}
+          onAddCommission={onAddCommission}
+        />
+      </div>
+    </section>
+  );
+}
+
+function MaterialsInventoryPanel({
+  state,
+  onUpdateMaterial,
+}: {
+  state: ReturnType<typeof useLocalCampaign>["state"];
+  onUpdateMaterial: (material: MaterialName, value: number) => void;
+}) {
+  return (
+    <section className="left-materials">
+      <PanelTitle icon={Gem} title="Materials Inventory" />
+      <div className="mini-list">
+        {(Object.entries(state.materials) as Array<[MaterialName, { lbs: number; gpPerLb: number }]>).map(([material, amount]) => (
+          <label key={material} className="editable-row">
+            <span>{material}</span>
+            <input type="number" min="0" value={amount.lbs} onChange={(event) => onUpdateMaterial(material, Number(event.target.value))} />
+            <em>lbs</em>
+          </label>
+        ))}
       </div>
     </section>
   );

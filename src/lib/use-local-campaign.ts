@@ -209,13 +209,30 @@ export function useLocalCampaign() {
     return () => window.clearInterval(interval);
   }, [applyDocument, hydrated, syncStatus]);
 
-  function reset() {
+  async function reset() {
+    const initialDraft = createResolutionDraft(initialCampaignState);
     setState(initialCampaignState);
-    setDraft(createResolutionDraft(initialCampaignState));
+    setDraft(initialDraft);
     setUndoSnapshot(null);
+    setConflictDocument(null);
     window.localStorage.removeItem(storageKey);
     window.localStorage.removeItem(draftStorageKey);
     window.localStorage.removeItem(undoStorageKey);
+
+    if (!serverBackedRef.current) return;
+    try {
+      setSyncStatus("saving");
+      const document = await putCampaign({
+        state: initialCampaignState,
+        draft: initialDraft,
+        overwrite: true,
+        updatedBy: "table-reset",
+      });
+      applyDocument(document);
+    } catch (error) {
+      setSyncStatus("error");
+      setSyncMessage(error instanceof Error ? error.message : "Reset locally, but shared save did not update.");
+    }
   }
 
   function exportJson() {
