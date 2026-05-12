@@ -1332,6 +1332,50 @@ export function createResolutionDraft(state: CampaignState): MonthlyResolutionDr
   };
 }
 
+function hasCurrentLedgerReport(simulation: MonthlyResolutionDraft["simulation"]) {
+  const report = simulation?.report;
+  return Boolean(
+    report &&
+      Number.isFinite(report.totalIncome) &&
+      Number.isFinite(report.totalCosts) &&
+      Number.isFinite(report.rollImpactGp) &&
+      Number.isFinite(report.rollImpactStandardDeviations),
+  );
+}
+
+export function normalizeResolutionDraftForState(state: CampaignState, draft: unknown): MonthlyResolutionDraft {
+  if (!draft || typeof draft !== "object") return createResolutionDraft(state);
+  const candidate = draft as Partial<MonthlyResolutionDraft>;
+  if (candidate.version !== 1 || candidate.month !== state.currentMonth || !candidate.allocation) {
+    return createResolutionDraft(state);
+  }
+
+  const projectPlans = allocateCommissionProjectHours(state, candidate.allocation.commissionWorkHours);
+  const projectRolls = projectPlans.map((plan) => {
+    const existing = candidate.projectRolls?.find((roll) => roll.projectId === plan.projectId)?.roll;
+    return existing === undefined ? { projectId: plan.projectId } : { projectId: plan.projectId, roll: existing };
+  });
+  const simulation = hasCurrentLedgerReport(candidate.simulation) ? candidate.simulation : undefined;
+  const stage =
+    simulation || candidate.stage === "planning" || candidate.stage === "forecast" || candidate.stage === "rolls"
+      ? candidate.stage ?? "planning"
+      : "planning";
+
+  return {
+    ...createResolutionDraft(state),
+    ...candidate,
+    stage,
+    projectPlans,
+    projectRolls,
+    simulation,
+    playback: {
+      cardIndex: candidate.playback?.cardIndex ?? 0,
+      autoplay: candidate.playback?.autoplay ?? false,
+      speed: candidate.playback?.speed ?? "normal",
+    },
+  };
+}
+
 function selectedPlans(draft: MonthlyResolutionDraft) {
   return draft.projectPlans.filter((plan) => plan.selected);
 }

@@ -17,6 +17,7 @@ import {
   itemPrimaryMaterialLabel,
   itemRecipeSummary,
   normalizeCampaignState,
+  normalizeResolutionDraftForState,
   outcomeFromMargin,
   progressEfficiencyFromRoll,
   resolveMonthlyDraft,
@@ -360,5 +361,31 @@ describe("staged monthly resolution", () => {
     expect(applied.currentMonth).toBe(initialCampaignState.currentMonth + 1);
     expect(applied.ledger).toHaveLength(initialCampaignState.ledger.length + 1);
     expect(undoLastAppliedMonth(initialCampaignState)?.currentMonth).toBe(initialCampaignState.currentMonth);
+  });
+
+  it("drops stale saved simulations that predate the current ledger report shape", () => {
+    const draft = createResolutionDraft(initialCampaignState);
+    const staleDraft = {
+      ...draft,
+      stage: "ledger" as const,
+      simulation: {
+        id: "old",
+        monthLabel: initialCampaignState.monthLabel,
+        generatedAt: new Date(0).toISOString(),
+        events: [],
+        cards: [],
+        report: {
+          totalNetProfit: 2000,
+          trueProfitBeforePerfectionism: 2400,
+        },
+        forecast: forecastMonthlyPlan(initialCampaignState, draft, 10),
+        nextState: initialCampaignState,
+      },
+    } as unknown as MonthlyResolutionDraft;
+
+    const normalized = normalizeResolutionDraftForState(initialCampaignState, staleDraft);
+
+    expect(normalized.stage).toBe("planning");
+    expect(normalized.simulation).toBeUndefined();
   });
 });
