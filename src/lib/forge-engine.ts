@@ -1046,6 +1046,35 @@ export function campaignCalendarLabel(monthNumber: number): string {
   return `${faerunMonths[absoluteMonth % faerunMonths.length]} ${year} DR`;
 }
 
+function parseCampaignCalendarLabel(monthLabel: string): { monthIndex: number; year: number } | null {
+  const match = monthLabel.match(/^([A-Za-z]+)\s+(\d+)\s+DR$/);
+  if (!match) return null;
+  const monthIndex = faerunMonths.indexOf(match[1]);
+  const year = Number(match[2]);
+  if (monthIndex < 0 || !Number.isFinite(year)) return null;
+  return { monthIndex, year };
+}
+
+function normalizeCampaignMonthLabel(monthLabel: string, currentMonth: number): string {
+  if (parseCampaignCalendarLabel(monthLabel)) return monthLabel;
+
+  const legacyMatch = monthLabel.match(/^Month\s+(\d+)$/i);
+  if (legacyMatch) {
+    return campaignCalendarLabel(Number(legacyMatch[1]));
+  }
+
+  return campaignCalendarLabel(currentMonth);
+}
+
+function nextCampaignMonthLabel(monthLabel: string, fallbackMonthNumber: number): string {
+  const parsed = parseCampaignCalendarLabel(monthLabel);
+  if (!parsed) return campaignCalendarLabel(fallbackMonthNumber);
+
+  const nextMonthIndex = (parsed.monthIndex + 1) % faerunMonths.length;
+  const nextYear = parsed.year + (nextMonthIndex === 0 ? 1 : 0);
+  return `${faerunMonths[nextMonthIndex]} ${nextYear} DR`;
+}
+
 const priorityWeight: Record<Priority, number> = {
   urgent: 0,
   high: 1,
@@ -1765,7 +1794,7 @@ export function applyMonthlySimulation(state: CampaignState, simulation: Monthly
   return {
     ...state,
     currentMonth: nextMonth,
-    monthLabel: campaignCalendarLabel(nextMonth),
+    monthLabel: nextCampaignMonthLabel(state.monthLabel, nextMonth),
     profile: {
       ...state.profile,
       reputation: report.endingReputation,
@@ -1967,7 +1996,7 @@ export function resolveMonth(state: CampaignState): { state: CampaignState; resu
   const nextState: CampaignState = {
     ...state,
     currentMonth: nextMonth,
-    monthLabel: campaignCalendarLabel(nextMonth),
+    monthLabel: nextCampaignMonthLabel(state.monthLabel, nextMonth),
     profile: {
       ...state.profile,
       reputation: Math.max(0, Math.min(state.profile.maxReputation, state.profile.reputation + reputationDelta)),
@@ -2139,7 +2168,7 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
 
   return {
     ...state,
-    monthLabel: campaignCalendarLabel(state.currentMonth),
+    monthLabel: normalizeCampaignMonthLabel(state.monthLabel, state.currentMonth),
     profile: {
       ...state.profile,
       skills: {

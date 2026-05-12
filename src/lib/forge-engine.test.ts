@@ -175,6 +175,9 @@ describe("staged monthly resolution", () => {
 
     const normalized = normalizeCampaignState({ ...initialCampaignState, currentMonth: 4, monthLabel: "Month 4" });
     expect(normalized?.monthLabel).toBe("Nightal 1374 DR");
+
+    const explicit = normalizeCampaignState({ ...initialCampaignState, currentMonth: 2, monthLabel: "Elient 1374 DR" });
+    expect(explicit?.monthLabel).toBe("Elient 1374 DR");
   });
 
   it("auto-allocates commission slider hours by priority and caps at remaining work", () => {
