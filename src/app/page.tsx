@@ -151,7 +151,7 @@ export default function Home() {
     const repairDelta = Math.round((Math.max(0, state.labor.repairs || 0) - 40) * 4);
     const projectedNet = Math.max(0, Math.round(targetNet + projectPressure + reputationStability + repairDelta));
     const projectedExpenses = state.profile.genericShopCostsGp;
-    const sigma = Math.max(
+    const standardDeviation = Math.max(
       450,
       Math.round(state.profile.dmTargetVolatilityGp - state.profile.reputation * 18 + activeProjects.length * 80),
     );
@@ -161,9 +161,9 @@ export default function Home() {
       projectedExpenses,
       materialSavings: 0,
       projectedNet,
-      sigma,
-      min: Math.max(0, projectedNet - sigma),
-      max: projectedNet + sigma,
+      standardDeviation,
+      min: Math.max(0, projectedNet - standardDeviation),
+      max: projectedNet + standardDeviation,
     };
   }, [
     activeProjects.length,
@@ -518,7 +518,7 @@ function RightColumn({
     projectedExpenses: number;
     materialSavings: number;
     projectedNet: number;
-    sigma: number;
+    standardDeviation: number;
     min: number;
     max: number;
   };
@@ -551,8 +551,8 @@ function RightColumn({
       <section className="ornate-panel">
         <PanelTitle icon={CircleDollarSign} title="Monthly Outlook" />
         <StatRow label="Expected Net" value={`${outlook.projectedNet.toLocaleString()} gp`} />
-        <StatRow label="Sigma" value={`+/- ${outlook.sigma.toLocaleString()} gp`} />
-        <StatRow label="One-Sigma Band" value={`${outlook.min.toLocaleString()} - ${outlook.max.toLocaleString()} gp`} />
+        <StatRow label="Std Deviation" value={`+/- ${outlook.standardDeviation.toLocaleString()} gp`} />
+        <StatRow label="One Std Dev Band" value={`${outlook.min.toLocaleString()} - ${outlook.max.toLocaleString()} gp`} />
         <StatRow label="Fixed Misc Costs" value={`${outlook.projectedExpenses.toLocaleString()} gp`} />
         <StatRow label="Target Net" value={`${state.profile.dmTargetProfitGp.toLocaleString()} gp`} />
         <StatRow label="Reputation" value={`${state.profile.reputation}/${state.profile.maxReputation}`} />
@@ -949,7 +949,7 @@ function ForecastStage({
     <div className="wizard-body">
       <div className="summary-strip">
         <StatRow label="Expected Net" value={`${forecast.expectedTotalProfit.toLocaleString()} gp`} />
-        <StatRow label="Sigma" value={`+/- ${forecast.profitSigma.toLocaleString()} gp`} />
+        <StatRow label="Std Deviation" value={`+/- ${forecast.profitSigma.toLocaleString()} gp`} />
         <StatRow label="P10/P50/P90" value={`${forecast.profitP10}/${forecast.profitP50}/${forecast.profitP90}`} />
         <StatRow label="Negative Risk" value={`${Math.round(forecast.probabilityNegativeProfit * 100)}%`} />
       </div>
@@ -1190,12 +1190,13 @@ function LedgerStage({
   return (
     <div className="wizard-body ledger-body">
       <div className="summary-strip">
-        <StatRow label="Net" value={`${report.totalNetProfit.toLocaleString()} gp`} />
-        <StatRow label="True Shop" value={`${report.trueShopValue.toLocaleString()} gp`} />
-        <StatRow label="Perfectionism" value={`${report.perfectionismWaste.toLocaleString()} gp`} />
+        <StatRow label="Net Profit" value={`${report.totalNetProfit.toLocaleString()} gp`} />
+        <StatRow label="True Profit" value={`${report.trueProfitBeforePerfectionism.toLocaleString()} gp`} />
+        <StatRow label="Perfectionism Tax" value={`${report.perfectionismWaste.toLocaleString()} gp`} />
+        <StatRow label="Gross Profit" value={`${(report.controlledRecognizedCommissionProfit + report.trueShopValue + report.repairMiscProfit).toLocaleString()} gp`} />
         <StatRow label="Rep" value={`${report.startingReputation} -> ${report.endingReputation}`} />
       </div>
-      <MiniList title="Profit Explanation" rows={report.ledgerSummaryLines} />
+      <MiniList title="Profit Calculation" rows={report.ledgerSummaryLines} />
       <MiniList title="Projects" rows={report.projectReports.map((project) => `${project.name}: ${project.hoursAfter}/${project.requiredHours}h, craft ${project.craftingTotal} vs DC ${project.craftDc}, ${project.quality}, ${project.completedThisMonth ? "complete" : "open"}`)} />
       <MiniList title="Materials" rows={(Object.keys(report.materialsBefore) as MaterialName[]).map((material) => `${material}: ${report.materialsBefore[material].lbs} lbs -> ${report.materialsAfter[material].lbs} lbs`)} />
       <MiniList title="Inventory" rows={[...report.itemsProduced.map((item) => `Produced ${item.quantity} ${item.itemName}`), ...report.itemsSold.map((item) => `Sold ${item.quantity} ${item.itemName} (${item.gp} gp)`), ...report.targetStockDeficitsRemaining.map((item) => `${item.itemName} deficit ${item.deficit}`)]} />
@@ -1409,14 +1410,15 @@ function monthlyReportMarkdown(simulation: MonthlyResolutionSimulation) {
     `# ${simulation.monthLabel} Forge Report`,
     "",
     `Net profit: ${report.totalNetProfit.toLocaleString()} gp`,
+    `True profit before Perfectionism: ${report.trueProfitBeforePerfectionism.toLocaleString()} gp`,
     `Commission/project value: ${report.grossCommissionProjectValue.toLocaleString()} gp`,
     `True commission profit before Perfectionism: ${report.controlledRecognizedCommissionProfit.toLocaleString()} gp`,
     `True shop value: ${report.trueShopValue.toLocaleString()} gp`,
     `Repair/misc profit: ${report.repairMiscProfit.toLocaleString()} gp`,
     `Generic shop costs: ${report.genericShopCosts.toLocaleString()} gp`,
-    `Taark's Perfectionism: ${report.perfectionismWaste.toLocaleString()} gp`,
+    `Perfectionism Tax: ${report.perfectionismWaste.toLocaleString()} gp`,
     "",
-    "## Profit Explanation",
+    "## Profit Calculation",
     ...report.ledgerSummaryLines.map((line) => `- ${line}`),
     "",
     "## Hours",
@@ -1870,7 +1872,7 @@ function RulesSettingsOverlay({
         </div>
         <div className="rules-settings-grid">
           <NumberField label="Target Profit gp" value={state.profile.dmTargetProfitGp} onChange={(value) => onUpdateProfile({ dmTargetProfitGp: Math.max(0, value) })} />
-          <NumberField label="Sigma gp" value={state.profile.dmTargetVolatilityGp} onChange={(value) => onUpdateProfile({ dmTargetVolatilityGp: Math.max(0, value) })} />
+          <NumberField label="Std Deviation gp" value={state.profile.dmTargetVolatilityGp} onChange={(value) => onUpdateProfile({ dmTargetVolatilityGp: Math.max(0, value) })} />
           <NumberField label="Perfectionism %" value={state.profile.perfectionismWastePct} onChange={(value) => onUpdateProfile({ perfectionismWastePct: Math.max(0, value) })} />
         </div>
         <div className="rules-scroll">
@@ -1879,7 +1881,7 @@ function RulesSettingsOverlay({
           <p>Quality goals are explicit. Taark defaults to Dwarvencraft for armor and shields, Masterwork for weapons, and Standard for blacksmithing, finesmithing, and locksmithing shelf goods. Project rows can override the quality goal when the DM needs an exception.</p>
           <p>Masterwork adds +4 DC and +50% time. Dwarvencraft implies Masterwork, then adds +2 DC, +25% time, and the Dwarvencraft surcharge. Special materials add their DC and time modifiers. Craft ranks can halve time up to three times, and check margin can resolve final completion when a funded commission rolls.</p>
           <p>Materials are guild-backed. Taark tracks on-hand pounds and true costs, but shortages do not block crafting. Missing materials are assumed to be supplied through guild channels and charged through the month.</p>
-          <p>The ledger now starts from true value: completed commission value, shop sales, and repairs. Taark&apos;s Perfectionism is then shown as an explicit extra material/work cost for rejected, overbuilt, re-smelted, refit, or over-polished goods. Strong rolls and commission-heavy months can exceed the DM target; the target and sigma are guidance, not a hard cap.</p>
+          <p>The ledger now starts from true value: completed commission value, shop sales, and repairs. Taark&apos;s Perfectionism is then shown as an explicit tax-style material/work cost for rejected, overbuilt, re-smelted, refit, or over-polished goods. Strong rolls and commission-heavy months can exceed the DM target; the target and standard deviation are guidance, not a hard cap.</p>
           <p>Monthly Event Mod is a percentage modifier to the whole month&apos;s available forge hours. Jordy&apos;s training slider is capped at 80 hours, treating him as a child helper rather than another full worker.</p>
         </div>
       </section>

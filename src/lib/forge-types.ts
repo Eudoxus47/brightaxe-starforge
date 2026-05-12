@@ -476,6 +476,7 @@ export interface MonthlyResolutionReport {
   genericShopCosts: number;
   materialPurchasesLosses: number;
   perfectionismWaste: number;
+  trueProfitBeforePerfectionism: number;
   totalNetProfit: number;
   ledgerSummaryLines: string[];
   totalAvailableHours: number;
