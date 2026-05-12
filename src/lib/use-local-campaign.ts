@@ -1,7 +1,7 @@
 "use client";
 
 import { Dispatch, SetStateAction, useCallback, useEffect, useRef, useState } from "react";
-import { applyMonthlySimulation, createResolutionDraft, normalizeCampaignState, undoLastAppliedMonth } from "./forge-engine";
+import { allocateCommissionProjectHours, applyMonthlySimulation, createResolutionDraft, normalizeCampaignState, undoLastAppliedMonth } from "./forge-engine";
 import { initialCampaignState } from "./seed";
 import type { CampaignSaveRequest, CampaignState, MonthlyResolutionDraft, MonthlyResolutionSimulation, SharedCampaignDocument } from "./forge-types";
 
@@ -35,7 +35,13 @@ function loadLocal() {
   const savedDraft = window.localStorage.getItem(draftStorageKey);
   if (savedDraft) {
     const parsedDraft = JSON.parse(savedDraft) as MonthlyResolutionDraft;
-    draft = parsedDraft?.version === 1 && parsedDraft.month === state.currentMonth ? parsedDraft : createResolutionDraft(state);
+    draft =
+      parsedDraft?.version === 1 && parsedDraft.month === state.currentMonth
+        ? {
+            ...parsedDraft,
+            projectPlans: allocateCommissionProjectHours(state, parsedDraft.allocation.commissionWorkHours),
+          }
+        : createResolutionDraft(state);
   } else {
     draft = createResolutionDraft(state);
   }

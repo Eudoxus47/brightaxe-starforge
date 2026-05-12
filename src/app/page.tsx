@@ -241,7 +241,7 @@ export default function Home() {
       ...current,
       projectPlans: [
         ...current.projectPlans,
-        { projectId: id, selected: false, allocatedHours: 0 },
+        { projectId: id, selected: false, allocatedHours: 0, nominalHours: newCommission.hours, protectedHours: newCommission.hours, bufferHours: 0, fundingStatus: "unfunded" },
       ],
       projectRolls: [...current.projectRolls, { projectId: id }],
     }));
@@ -778,18 +778,37 @@ function PlanningStage({
       <CommissionCompletionEstimate forecast={liveForecast} projects={active} />
       <div className="project-plan-list">
         {active.map((project) => {
-          const plan = draft.projectPlans.find((candidate) => candidate.projectId === project.id) ?? { projectId: project.id, selected: false, allocatedHours: 0 };
+          const plan = draft.projectPlans.find((candidate) => candidate.projectId === project.id) ?? {
+            projectId: project.id,
+            selected: false,
+            allocatedHours: 0,
+            nominalHours: Math.max(0, getProjectRequirements(project).hours - project.hoursInvested),
+            protectedHours: Math.max(0, getProjectRequirements(project).hours - project.hoursInvested),
+            bufferHours: 0,
+            fundingStatus: "unfunded" as const,
+          };
           const requirements = getProjectRequirements(project);
           const remaining = Math.max(0, requirements.hours - project.hoursInvested);
           const chance = liveForecast.probabilityEachProjectCompletes[project.id] ?? 0;
+          const fundingNote =
+            plan.fundingStatus === "buffered"
+              ? `Funded + ${plan.bufferHours}h buffer`
+              : plan.fundingStatus === "funded"
+                ? "Fully funded; odds reflect roll quality"
+                : plan.fundingStatus === "partial"
+                  ? `${Math.max(0, plan.nominalHours - plan.allocatedHours)}h short of full funding`
+                  : "Not funded";
           return (
-            <div key={project.id} className={`project-plan-row ${plan.allocatedHours > 0 ? "allocated" : ""}`}>
+            <div key={project.id} className={`project-plan-row ${plan.allocatedHours > 0 ? "allocated" : ""} ${plan.fundingStatus}`}>
               <span>
                 <strong>{project.name}</strong>
                 <small>{project.priority} | {project.hoursInvested}/{requirements.hours}h | DC {requirements.dc}</small>
               </span>
-              <em>{plan.allocatedHours}h</em>
-              <small>{remaining}h left | {Math.round(chance * 100)}%</small>
+              <em>
+                {plan.allocatedHours}h
+                <small>{plan.nominalHours}h full</small>
+              </em>
+              <small>{remaining}h left | {Math.round(chance * 100)}%<br />{fundingNote}</small>
             </div>
           );
         })}

@@ -185,8 +185,11 @@ describe("staged monthly resolution", () => {
     const plans = allocateCommissionProjectHours(initialCampaignState, 220);
     const byId = Object.fromEntries(plans.map((plan) => [plan.projectId, plan]));
 
-    expect(byId["basenhack-full-plate"].allocatedHours).toBe(139);
-    expect(byId["fairstream-breastplate"].allocatedHours).toBe(81);
+    expect(byId["basenhack-full-plate"].allocatedHours).toBe(166);
+    expect(byId["basenhack-full-plate"].nominalHours).toBe(166);
+    expect(byId["basenhack-full-plate"].fundingStatus).toBe("funded");
+    expect(byId["fairstream-breastplate"].allocatedHours).toBe(54);
+    expect(byId["fairstream-breastplate"].fundingStatus).toBe("partial");
     expect(byId["purple-worm-tooth"].allocatedHours).toBe(0);
     expect(byId["iron-doors-mermaid"].allocatedHours).toBe(0);
     expect(plans.filter((plan) => plan.selected).every((plan) => plan.allocatedHours > 0)).toBe(true);
@@ -199,7 +202,9 @@ describe("staged monthly resolution", () => {
     const ironDoors = initialCampaignState.projects.find((project) => project.id === "iron-doors-mermaid");
 
     expect(byId["purple-worm-tooth"].allocatedHours).toBeGreaterThan(purple?.requiredHours ?? 0);
+    expect(byId["purple-worm-tooth"].fundingStatus).toBe("buffered");
     expect(byId["iron-doors-mermaid"].allocatedHours).toBeGreaterThan(ironDoors?.requiredHours ?? 0);
+    expect(byId["iron-doors-mermaid"].bufferHours).toBeGreaterThan(0);
     expect(plans.reduce((total, plan) => total + plan.allocatedHours, 0)).toBe(660);
   });
 

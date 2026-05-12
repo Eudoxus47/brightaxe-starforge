@@ -341,6 +341,10 @@ export interface ProjectMonthlyPlan {
   projectId: string;
   selected: boolean;
   allocatedHours: number;
+  nominalHours: number;
+  protectedHours: number;
+  bufferHours: number;
+  fundingStatus: "unfunded" | "partial" | "funded" | "buffered";
 }
 
 export interface MonthlyHourInputs {

@@ -1036,7 +1036,7 @@ function completionProtectedHoursForProject(state: CampaignState, project: Forge
   const requirements = getProjectRequirements(project);
   const remaining = Math.max(0, requirements.hours - project.hoursInvested);
   if (remaining === 0) return 0;
-  return Math.ceil(remaining / Math.max(0.25, minimumProgressEfficiencyForProject(state, project)));
+  return Math.max(remaining, Math.ceil(remaining / Math.max(0.25, minimumProgressEfficiencyForProject(state, project))));
 }
 
 function totalProtectedCommissionHours(state: CampaignState): number {
@@ -1123,10 +1123,26 @@ export function allocateCommissionProjectHours(state: CampaignState, commissionH
     .filter((project) => project.status === "queued" || project.status === "in_progress")
     .map((project) => {
       const allocatedHours = allocation.get(project.id) ?? 0;
+      const requirements = getProjectRequirements(project);
+      const nominalHours = Math.max(0, requirements.hours - project.hoursInvested);
+      const protectedHours = completionProtectedHoursForProject(state, project);
+      const bufferHours = Math.max(0, allocatedHours - nominalHours);
+      const fundingStatus =
+        allocatedHours <= 0
+          ? "unfunded"
+          : allocatedHours < nominalHours
+            ? "partial"
+            : allocatedHours >= protectedHours && protectedHours > nominalHours
+              ? "buffered"
+              : "funded";
       return {
         projectId: project.id,
         selected: allocatedHours > 0,
         allocatedHours,
+        nominalHours,
+        protectedHours,
+        bufferHours,
+        fundingStatus,
       };
     });
 }

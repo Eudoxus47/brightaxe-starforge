@@ -894,6 +894,15 @@ select:focus {
   border-color: rgba(133, 196, 192, 0.45);
 }
 
+.project-plan-row.partial {
+  border-color: rgba(246, 160, 122, 0.38);
+}
+
+.project-plan-row.funded,
+.project-plan-row.buffered {
+  background: rgba(16, 82, 78, 0.24);
+}
+
 .project-plan-row span,
 .project-plan-row strong,
 .project-plan-row small {
@@ -919,6 +928,11 @@ select:focus {
   font-size: 12px;
   font-style: normal;
   text-align: right;
+}
+
+.project-plan-row em small {
+  color: var(--muted);
+  font-size: 8px;
 }
 
 .warning-list {
