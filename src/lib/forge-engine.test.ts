@@ -228,6 +228,28 @@ describe("staged monthly resolution", () => {
     expect(steelBreastplate && itemRecipeSummary(steelBreastplate.item)).toContain("30 lb Steel");
   });
 
+  it("seeds and normalizes standard smithing metals", () => {
+    expect(initialCampaignState.materials["Cold Iron"].lbs).toBeGreaterThan(0);
+    expect(initialCampaignState.materials["Alchemical Silver"].gpPerLb).toBe(5);
+    expect(initialCampaignState.materials.Platinum.lbs).toBeGreaterThan(0);
+
+    const normalized = normalizeCampaignState({
+      ...initialCampaignState,
+      materials: {
+        Iron: { lbs: 100, gpPerLb: 0.1 },
+        Steel: { lbs: 100, gpPerLb: 1 },
+        Mithril: { lbs: 0, gpPerLb: 250 },
+        Adamantine: { lbs: 0, gpPerLb: 300 },
+        Silver: { lbs: 0, gpPerLb: 5 },
+        Gold: { lbs: 0, gpPerLb: 50 },
+      },
+    });
+
+    expect(normalized?.materials.Bronze.lbs).toBe(0);
+    expect(normalized?.materials["Cold Iron"].gpPerLb).toBe(2);
+    expect(normalized?.materials.Platinum.gpPerLb).toBe(500);
+  });
+
   it("validates over-allocated commission hours", () => {
     const draft = {
       ...createResolutionDraft(initialCampaignState),

@@ -1,10 +1,19 @@
 export type MaterialName =
   | "Iron"
   | "Steel"
+  | "Copper"
+  | "Tin"
+  | "Bronze"
+  | "Brass"
+  | "Lead"
+  | "Cold Iron"
+  | "Alchemical Silver"
   | "Mithril"
   | "Adamantine"
   | "Silver"
-  | "Gold";
+  | "Electrum"
+  | "Gold"
+  | "Platinum";
 
 export type Complexity =
   | "very-simple"

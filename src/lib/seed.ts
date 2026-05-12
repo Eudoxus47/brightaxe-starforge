@@ -101,10 +101,19 @@ const seed = "brightaxe-starforge";
 const materials = materialStockToInventory({
   Iron: 240,
   Steel: 420,
+  Copper: 80,
+  Tin: 24,
+  Bronze: 90,
+  Brass: 45,
+  Lead: 60,
+  "Cold Iron": 35,
+  "Alchemical Silver": 28,
+  Silver: 70,
+  Electrum: 8,
+  Gold: 35,
+  Platinum: 4,
   Mithril: 25,
   Adamantine: 60,
-  Silver: 70,
-  Gold: 35,
 });
 
 const projects = [

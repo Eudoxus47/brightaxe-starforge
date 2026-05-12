@@ -51,15 +51,44 @@ export const specialMaterialDc: Partial<Record<MaterialName, number>> = {
   Adamantine: 6,
   Mithril: 4,
   Silver: 2,
+  "Cold Iron": 2,
+  "Alchemical Silver": 2,
 };
+
+export const materialNames: MaterialName[] = [
+  "Iron",
+  "Steel",
+  "Copper",
+  "Tin",
+  "Bronze",
+  "Brass",
+  "Lead",
+  "Cold Iron",
+  "Alchemical Silver",
+  "Silver",
+  "Electrum",
+  "Gold",
+  "Platinum",
+  "Mithril",
+  "Adamantine",
+];
 
 export const defaultMaterialCosts: Record<MaterialName, number> = {
   Iron: 0.1,
   Steel: 1,
+  Copper: 0.2,
+  Tin: 3,
+  Bronze: 0.8,
+  Brass: 0.7,
+  Lead: 0.1,
+  "Cold Iron": 2,
+  "Alchemical Silver": 5,
+  Silver: 5,
+  Electrum: 25,
+  Gold: 50,
+  Platinum: 500,
   Mithril: 250,
   Adamantine: 300,
-  Silver: 5,
-  Gold: 50,
 };
 
 const eventSources: EventSource[] = [
@@ -2106,12 +2135,27 @@ export function clampLabor(state: CampaignState, labor: LaborAllocation): LaborA
   };
 }
 
-export function materialStockToInventory(stock: Record<MaterialName, number>): MaterialInventory {
+export function materialStockToInventory(stock: Partial<Record<MaterialName, number>>): MaterialInventory {
   return Object.fromEntries(
-    (Object.entries(stock) as Array<[MaterialName, number]>).map(([material, lbs]) => [
+    materialNames.map((material) => [
       material,
-      { lbs, gpPerLb: defaultMaterialCosts[material] },
+      { lbs: stock[material] ?? 0, gpPerLb: defaultMaterialCosts[material] },
     ]),
+  ) as MaterialInventory;
+}
+
+function normalizeMaterialInventory(materials: MaterialInventory): MaterialInventory {
+  return Object.fromEntries(
+    materialNames.map((material) => {
+      const existing = materials[material];
+      return [
+        material,
+        {
+          lbs: Math.max(0, Math.round(existing?.lbs ?? 0)),
+          gpPerLb: existing?.gpPerLb ?? defaultMaterialCosts[material],
+        },
+      ];
+    }),
   ) as MaterialInventory;
 }
 
@@ -2212,12 +2256,14 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
       : state.profile.genericShopCostsGp;
   const shopProfitBaselineGp = state.profile.shopProfitBaselineGp === 2000 ? 1700 : state.profile.shopProfitBaselineGp;
   const toolForgeBonus = (state.profile.forgeBonus || 0) + (state.profile.toolBonus || 0);
+  const materials = normalizeMaterialInventory(state.materials);
   const projects = state.projects.some((project) => project.id === "iron-doors-mermaid")
     ? state.projects
-    : [...state.projects, createIronDoorsProject(state.materials)];
+    : [...state.projects, createIronDoorsProject(materials)];
 
   return {
     ...state,
+    materials,
     monthLabel: normalizeCampaignMonthLabel(state.monthLabel, state.currentMonth),
     profile: {
       ...state.profile,
