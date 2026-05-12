@@ -222,6 +222,10 @@ describe("staged monthly resolution", () => {
     const steelBreastplate = initialCampaignState.inventory.find((stock) => stock.id === "breastplate-mw");
     const mithrilBreastplate = initialCampaignState.inventory.find((stock) => stock.id === "mithril-breastplate");
     const battleaxe = initialCampaignState.inventory.find((stock) => stock.id === "battleaxe-mw");
+    const lockset = initialCampaignState.inventory.find((stock) => stock.id === "reinforced-lockset-mw");
+    const fittings = initialCampaignState.inventory.find((stock) => stock.id === "armor-fittings-mw");
+    const dwarvencraftDisplayOnly = deriveCraftingStats(steelBreastplate!.item);
+    const masterworkBaseline = deriveCraftingStats({ ...steelBreastplate!.item });
 
     expect(steelBreastplate && inventoryItemDisplayName(steelBreastplate.item)).toBe("Steel Breastplate (MW)");
     expect(mithrilBreastplate && inventoryItemDisplayName(mithrilBreastplate.item)).toBe("Mithril Breastplate");
@@ -229,6 +233,9 @@ describe("staged monthly resolution", () => {
     expect(steelBreastplate && itemRecipeSummary(steelBreastplate.item)).toContain("30 lb Steel");
     expect(battleaxe?.item.category).toBe("weaponsmithing");
     expect(battleaxe?.target).toBe(2);
+    expect(lockset?.item.category).toBe("locksmithing");
+    expect(fittings?.item.category).toBe("finesmithing");
+    expect(dwarvencraftDisplayOnly).toEqual(masterworkBaseline);
   });
 
   it("seeds and normalizes standard smithing metals", () => {
@@ -254,6 +261,8 @@ describe("staged monthly resolution", () => {
     expect(normalized?.inventory.find((stock) => stock.id === "breastplate-mw")?.target).toBe(5);
     expect(normalized?.inventory.find((stock) => stock.id === "half-plate-mw")?.target).toBe(2);
     expect(normalized?.inventory.find((stock) => stock.id === "dagger-mw")?.target).toBe(4);
+    expect(normalized?.inventory.find((stock) => stock.id === "adamantine-breastplate")?.target).toBe(1);
+    expect(normalized?.inventory.find((stock) => stock.id === "simple-lock-mw")?.target).toBe(4);
   });
 
   it("validates over-allocated commission hours", () => {
@@ -311,6 +320,8 @@ describe("staged monthly resolution", () => {
     expect(bonuses.armorsmithing + toolForgeBonus).toBe(35);
     expect(bonuses.weaponsmithing + toolForgeBonus).toBe(12);
     expect(bonuses.blacksmithing + toolForgeBonus).toBe(7);
+    expect(bonuses.finesmithing + toolForgeBonus).toBe(3);
+    expect(bonuses.locksmithing + toolForgeBonus).toBe(5);
     expect(ironDoors?.item.category).toBe("blacksmithing");
     expect(ironDoors?.client).toBe("The Mermaid");
     expect(ironDoors?.craftDc).toBe(18);

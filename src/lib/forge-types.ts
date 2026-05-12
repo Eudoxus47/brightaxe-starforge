@@ -22,7 +22,7 @@ export type Complexity =
   | "complex"
   | "very-complex";
 
-export type SkillKey = "armorsmithing" | "weaponsmithing" | "blacksmithing";
+export type SkillKey = "armorsmithing" | "weaponsmithing" | "blacksmithing" | "finesmithing" | "locksmithing";
 
 export type ResolutionMode = "fixedHours" | "craftingPdf";
 

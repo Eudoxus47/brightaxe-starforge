@@ -46,6 +46,36 @@ const blacksmithing = (
   ...options,
 });
 
+const finesmithing = (
+  name: string,
+  basePriceGp: number,
+  materialRecipe: ForgeItem["materialRecipe"],
+  options: Partial<ForgeItem> = {},
+): ForgeItem => ({
+  name,
+  category: "finesmithing",
+  complexity: "simple",
+  basePriceGp,
+  masterwork: true,
+  materialRecipe,
+  ...options,
+});
+
+const locksmithing = (
+  name: string,
+  basePriceGp: number,
+  materialRecipe: ForgeItem["materialRecipe"],
+  options: Partial<ForgeItem> = {},
+): ForgeItem => ({
+  name,
+  category: "locksmithing",
+  complexity: "moderate",
+  basePriceGp,
+  masterwork: true,
+  materialRecipe,
+  ...options,
+});
+
 function recipeCost(materials: MaterialInventory, recipe: ForgeItem["materialRecipe"]): number {
   return (Object.entries(recipe) as Array<[MaterialName, number]>).reduce((total, [material, lbs]) => {
     if (lbs === undefined) return total;
@@ -185,6 +215,8 @@ export const initialCampaignState: CampaignState = {
       armorsmithing: 31,
       weaponsmithing: 8,
       blacksmithing: 3,
+      finesmithing: -1,
+      locksmithing: 1,
     },
     forgeQuality: "Masterwork",
     toolQuality: "Masterwork",
@@ -206,6 +238,11 @@ export const initialCampaignState: CampaignState = {
     inventoryItem("chain-shirt-mw", armor("Chain Shirt (MW)", 250, { Steel: 25 }), 2, 5),
     inventoryItem("mithril-chain-shirt", armor("Mithril Chain Shirt", 1100, { Mithril: 12 }, { specialMaterial: "Mithril" }), 1, 2),
     inventoryItem("mithril-breastplate", armor("Mithril Breastplate", 4200, { Mithril: 18 }, { specialMaterial: "Mithril" }), 1, 2),
+    inventoryItem("mithril-buckler", armor("Mithril Buckler", 1015, { Mithril: 5 }, { complexity: "moderate", specialMaterial: "Mithril" }), 0, 2),
+    inventoryItem("mithril-light-shield", armor("Mithril Light Shield", 1009, { Mithril: 8 }, { complexity: "moderate", specialMaterial: "Mithril" }), 0, 2),
+    inventoryItem("adamantine-breastplate", armor("Adamantine Breastplate", 6200, { Adamantine: 35, Steel: 12 }, { specialMaterial: "Adamantine" }), 0, 1),
+    inventoryItem("adamantine-shield", armor("Adamantine Heavy Shield", 3020, { Adamantine: 18, Steel: 4 }, { complexity: "moderate", specialMaterial: "Adamantine" }), 0, 1),
+    inventoryItem("adamantine-half-plate", armor("Adamantine Half-Plate", 10600, { Adamantine: 44, Steel: 12 }, { specialMaterial: "Adamantine" }), 0, 1),
     inventoryItem("tower-shield", armor("Tower Shield", 30, { Steel: 20 }, { complexity: "moderate", masterwork: false }), 2, 3),
     inventoryItem("heavy-steel-shield", armor("Heavy Steel Shield", 20, { Steel: 12 }, { complexity: "moderate", masterwork: false }), 3, 5),
     inventoryItem("light-steel-shield", armor("Light Steel Shield", 9, { Steel: 8 }, { complexity: "moderate", masterwork: false }), 3, 5),
@@ -216,6 +253,18 @@ export const initialCampaignState: CampaignState = {
     inventoryItem("warhammer-mw", weapon("Warhammer (MW)", 312, { Steel: 8 }), 1, 2),
     inventoryItem("longsword-mw", weapon("Longsword (MW)", 315, { Steel: 6 }), 1, 2),
     inventoryItem("dagger-mw", weapon("Dagger (MW)", 302, { Steel: 2 }), 2, 4),
+    inventoryItem("handaxe-mw", weapon("Handaxe (MW)", 306, { Steel: 5 }), 0, 2),
+    inventoryItem("short-sword-mw", weapon("Short Sword (MW)", 310, { Steel: 5 }), 0, 2),
+    inventoryItem("mace-mw", weapon("Heavy Mace (MW)", 312, { Steel: 7 }), 0, 2),
+    inventoryItem("spearheads-mw", weapon("Spearheads (MW)", 120, { Steel: 6 }, { complexity: "simple" }), 0, 4),
+    inventoryItem("simple-lock-mw", locksmithing("Simple Lock (MW)", 120, { Steel: 2, Brass: 1 }), 1, 4),
+    inventoryItem("good-lock-mw", locksmithing("Good Lock (MW)", 220, { Steel: 3, Brass: 1 }), 0, 3),
+    inventoryItem("reinforced-lockset-mw", locksmithing("Reinforced Lockset (MW)", 360, { Steel: 6, Brass: 2 }), 0, 2),
+    inventoryItem("hinges-mw", blacksmithing("Reinforced Hinges (MW)", 90, { Steel: 8 }, { complexity: "simple", masterwork: true }), 1, 4),
+    inventoryItem("buckles-clasps-mw", finesmithing("Buckles and Clasps (MW)", 80, { Brass: 2, Steel: 1 }), 1, 5),
+    inventoryItem("armor-fittings-mw", finesmithing("Armor Fittings (MW)", 140, { Brass: 3, Steel: 2 }), 1, 4),
+    inventoryItem("lantern-frames-mw", finesmithing("Lantern Frames (MW)", 120, { Brass: 4, Copper: 1 }), 0, 3),
+    inventoryItem("jewelry-fittings-mw", finesmithing("Jewelry Fittings (MW)", 180, { Silver: 1, Gold: 0.25 }), 0, 2),
   ],
   projects,
   events: generateMonthlyEvents(1, seed),

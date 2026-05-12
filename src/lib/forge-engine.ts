@@ -1332,6 +1332,7 @@ function effectiveAllocation(draft: MonthlyResolutionDraft, eventHours: ReturnTy
   const repairTarget = Math.max(0, draft.allocation.repairsWalkinsHours + hoursByTarget.shop);
   const jordyTarget = Math.max(0, draft.allocation.jordyTrainingHours);
   const requested = commissionTarget + genericTarget + repairTarget + jordyTarget;
+  const baseUnusedHours = Math.max(0, recomputedTotalHours(draft) - requested);
   const scale = requested > available && requested > 0 ? available / requested : 1;
   const selectedProjectHours = selectedPlans(draft).reduce((total, plan) => total + Math.max(0, plan.allocatedHours), 0);
   const commissionRatio = selectedProjectHours > 0 ? commissionTarget / selectedProjectHours : 1;
@@ -1339,13 +1340,15 @@ function effectiveAllocation(draft: MonthlyResolutionDraft, eventHours: ReturnTy
   const projectHours = Object.fromEntries(
     selectedPlans(draft).map((plan) => [plan.projectId, Math.floor(Math.max(0, plan.allocatedHours) * projectScale)]),
   );
+  const surplusInventoryHours = Math.floor(Math.max(0, available - requested - baseUnusedHours));
 
   return {
     available,
     scale,
-    unusedHours: Math.max(0, available - requested),
+    unusedHours: Math.floor(Math.max(0, available - requested - surplusInventoryHours)),
+    surplusInventoryHours,
     commissionWorkHours: Math.floor(commissionTarget * scale),
-    genericShopWorkHours: Math.floor(genericTarget * scale),
+    genericShopWorkHours: Math.floor(genericTarget * scale) + surplusInventoryHours,
     repairsWalkinsHours: Math.floor(repairTarget * scale),
     jordyTrainingHours: Math.floor(jordyTarget * scale),
     projectHours,
@@ -1644,7 +1647,7 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
     title: "The Month's Work Takes Shape",
     actorOrSystem: "Hours",
     flavorText: effective.scale < 1 ? "The month tightens, so every plan is trimmed proportionally." : "The plan fits within the forge's available time.",
-    mechanicalEffectText: `${effective.available}h available; ${Math.round(effective.scale * 100)}% work scale; ${effective.unusedHours}h unassigned.`,
+    mechanicalEffectText: `${effective.available}h available; ${Math.round(effective.scale * 100)}% work scale; ${effective.surplusInventoryHours}h surplus forge time converted to shelf goods.`,
     effectTags: ["hours"],
   });
 
@@ -1721,8 +1724,8 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
     roll: genericRoll,
     flavorText: "Standard goods come off the bench between larger obligations.",
     mechanicalEffectText: production.itemsProduced.length
-      ? production.itemsProduced.map((item) => `${item.quantity} ${item.itemName}`).join(", ")
-      : "No target-stock items completed.",
+      ? `${effective.genericShopWorkHours}h inventory work, including ${effective.surplusInventoryHours}h surplus spillover: ${production.itemsProduced.map((item) => `${item.quantity} ${item.itemName}`).join(", ")}.`
+      : `${effective.genericShopWorkHours}h inventory work, including ${effective.surplusInventoryHours}h surplus spillover; no target-stock items completed.`,
     effectTags: ["inventory"],
   });
 
@@ -2193,12 +2196,52 @@ function defaultInventoryWeapon(
   };
 }
 
+function defaultInventoryBlacksmithing(
+  name: string,
+  basePriceGp: number,
+  materialRecipe: ForgeItem["materialRecipe"],
+  options: Partial<ForgeItem> = {},
+): ForgeItem {
+  return {
+    name,
+    category: "blacksmithing",
+    complexity: "simple",
+    basePriceGp,
+    masterwork: true,
+    materialRecipe,
+    ...options,
+  };
+}
+
+function defaultInventoryFineOrLocksmithing(
+  category: "finesmithing" | "locksmithing",
+  name: string,
+  basePriceGp: number,
+  materialRecipe: ForgeItem["materialRecipe"],
+  options: Partial<ForgeItem> = {},
+): ForgeItem {
+  return {
+    name,
+    category,
+    complexity: category === "locksmithing" ? "moderate" : "simple",
+    basePriceGp,
+    masterwork: true,
+    materialRecipe,
+    ...options,
+  };
+}
+
 const inventoryTargetFloors: Record<string, number> = {
   "scale-mail-mw": 3,
   "breastplate-mw": 5,
   "chain-shirt-mw": 5,
   "mithril-chain-shirt": 2,
   "mithril-breastplate": 2,
+  "mithril-buckler": 2,
+  "mithril-light-shield": 2,
+  "adamantine-breastplate": 1,
+  "adamantine-shield": 1,
+  "adamantine-half-plate": 1,
   "tower-shield": 3,
   "heavy-steel-shield": 5,
   "light-steel-shield": 5,
@@ -2209,15 +2252,44 @@ const inventoryTargetFloors: Record<string, number> = {
   "warhammer-mw": 2,
   "longsword-mw": 2,
   "dagger-mw": 4,
+  "handaxe-mw": 2,
+  "short-sword-mw": 2,
+  "mace-mw": 2,
+  "spearheads-mw": 4,
+  "simple-lock-mw": 4,
+  "good-lock-mw": 3,
+  "reinforced-lockset-mw": 2,
+  "hinges-mw": 4,
+  "buckles-clasps-mw": 5,
+  "armor-fittings-mw": 4,
+  "lantern-frames-mw": 3,
+  "jewelry-fittings-mw": 2,
 };
 
 function inventoryBackfillRows(): InventoryItem[] {
   return [
     { id: "half-plate-mw", item: defaultInventoryArmor("Half-Plate (MW)", 600, { Steel: 42 }), quantity: 0, target: 2 },
+    { id: "mithril-buckler", item: defaultInventoryArmor("Mithril Buckler", 1015, { Mithril: 5 }, { complexity: "moderate", specialMaterial: "Mithril" }), quantity: 0, target: 2 },
+    { id: "mithril-light-shield", item: defaultInventoryArmor("Mithril Light Shield", 1009, { Mithril: 8 }, { complexity: "moderate", specialMaterial: "Mithril" }), quantity: 0, target: 2 },
+    { id: "adamantine-breastplate", item: defaultInventoryArmor("Adamantine Breastplate", 6200, { Adamantine: 35, Steel: 12 }, { specialMaterial: "Adamantine" }), quantity: 0, target: 1 },
+    { id: "adamantine-shield", item: defaultInventoryArmor("Adamantine Heavy Shield", 3020, { Adamantine: 18, Steel: 4 }, { complexity: "moderate", specialMaterial: "Adamantine" }), quantity: 0, target: 1 },
+    { id: "adamantine-half-plate", item: defaultInventoryArmor("Adamantine Half-Plate", 10600, { Adamantine: 44, Steel: 12 }, { specialMaterial: "Adamantine" }), quantity: 0, target: 1 },
     { id: "battleaxe-mw", item: defaultInventoryWeapon("Battleaxe (MW)", 310, { Steel: 8 }), quantity: 0, target: 2 },
     { id: "warhammer-mw", item: defaultInventoryWeapon("Warhammer (MW)", 312, { Steel: 8 }), quantity: 0, target: 2 },
     { id: "longsword-mw", item: defaultInventoryWeapon("Longsword (MW)", 315, { Steel: 6 }), quantity: 0, target: 2 },
     { id: "dagger-mw", item: defaultInventoryWeapon("Dagger (MW)", 302, { Steel: 2 }), quantity: 0, target: 4 },
+    { id: "handaxe-mw", item: defaultInventoryWeapon("Handaxe (MW)", 306, { Steel: 5 }), quantity: 0, target: 2 },
+    { id: "short-sword-mw", item: defaultInventoryWeapon("Short Sword (MW)", 310, { Steel: 5 }), quantity: 0, target: 2 },
+    { id: "mace-mw", item: defaultInventoryWeapon("Heavy Mace (MW)", 312, { Steel: 7 }), quantity: 0, target: 2 },
+    { id: "spearheads-mw", item: defaultInventoryWeapon("Spearheads (MW)", 120, { Steel: 6 }, { complexity: "simple" }), quantity: 0, target: 4 },
+    { id: "simple-lock-mw", item: defaultInventoryFineOrLocksmithing("locksmithing", "Simple Lock (MW)", 120, { Steel: 2, Brass: 1 }), quantity: 0, target: 4 },
+    { id: "good-lock-mw", item: defaultInventoryFineOrLocksmithing("locksmithing", "Good Lock (MW)", 220, { Steel: 3, Brass: 1 }), quantity: 0, target: 3 },
+    { id: "reinforced-lockset-mw", item: defaultInventoryFineOrLocksmithing("locksmithing", "Reinforced Lockset (MW)", 360, { Steel: 6, Brass: 2 }), quantity: 0, target: 2 },
+    { id: "hinges-mw", item: defaultInventoryBlacksmithing("Reinforced Hinges (MW)", 90, { Steel: 8 }), quantity: 0, target: 4 },
+    { id: "buckles-clasps-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Buckles and Clasps (MW)", 80, { Brass: 2, Steel: 1 }), quantity: 0, target: 5 },
+    { id: "armor-fittings-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Armor Fittings (MW)", 140, { Brass: 3, Steel: 2 }), quantity: 0, target: 4 },
+    { id: "lantern-frames-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Lantern Frames (MW)", 120, { Brass: 4, Copper: 1 }), quantity: 0, target: 3 },
+    { id: "jewelry-fittings-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Jewelry Fittings (MW)", 180, { Silver: 1, Gold: 0.25 }), quantity: 0, target: 2 },
   ];
 }
 
@@ -2347,6 +2419,8 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
         armorsmithing: Math.max(0, 35 - toolForgeBonus),
         weaponsmithing: Math.max(0, 12 - toolForgeBonus),
         blacksmithing: Math.max(0, 7 - toolForgeBonus),
+        finesmithing: 3 - toolForgeBonus,
+        locksmithing: 5 - toolForgeBonus,
       },
       genericShopCostsGp,
       shopProfitBaselineGp,

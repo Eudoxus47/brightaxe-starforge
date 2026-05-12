@@ -1542,9 +1542,9 @@ function InventoryRow({
   stock: ReturnType<typeof useLocalCampaign>["state"]["inventory"][number];
   onUpdateInventory: (id: string, update: { quantity?: number; target?: number }) => void;
 }) {
-  const Icon = stock.item.category === "weaponsmithing" ? Swords : Shield;
+  const Icon = stock.item.category === "weaponsmithing" ? Swords : stock.item.category === "armorsmithing" ? Shield : Hammer;
   const deficit = Math.max(0, stock.target - stock.quantity);
-  const qualityGoal = stock.item.category === "weaponsmithing" ? "Masterwork" : "Dwarvencraft";
+  const qualityGoal = stock.item.category === "armorsmithing" ? "Dwarvencraft" : "Masterwork";
 
   return (
     <article className={`inventory-row ${deficit > 0 ? "needs-stock" : ""}`}>
@@ -1606,6 +1606,8 @@ function InfoPopup({
                     `Armor: +${state.profile.skills.armorsmithing + state.profile.forgeBonus + state.profile.toolBonus}`,
                     `Weapons: +${state.profile.skills.weaponsmithing + state.profile.forgeBonus + state.profile.toolBonus}`,
                     `Blacksmithing: +${state.profile.skills.blacksmithing + state.profile.forgeBonus + state.profile.toolBonus}`,
+                    `Finesmithing: +${state.profile.skills.finesmithing + state.profile.forgeBonus + state.profile.toolBonus}`,
+                    `Locksmithing: +${state.profile.skills.locksmithing + state.profile.forgeBonus + state.profile.toolBonus}`,
                   ]
                 : panel === "visitors"
                   ? eventActors.map((actor) => `${actor}: event roll during resolution`)
