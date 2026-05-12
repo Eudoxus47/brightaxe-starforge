@@ -1022,12 +1022,17 @@ function progressEfficiencyFromCraft(roll: number, total: number, dc: number): n
   return 0.5;
 }
 
+function progressEfficiencyForProject(project: ForgeProject, roll: number, total: number, dc: number): number {
+  const efficiency = progressEfficiencyFromCraft(roll, total, dc);
+  return project.resolutionMode === "fixedHours" ? Math.max(1, efficiency) : efficiency;
+}
+
 function minimumProgressEfficiencyForProject(state: CampaignState, project: ForgeProject): number {
   const requirements = getProjectRequirements(project);
   let minimum = Number.POSITIVE_INFINITY;
   for (let roll = 1; roll <= 20; roll += 1) {
     const total = roll + craftBonusForProject(state, project);
-    minimum = Math.min(minimum, progressEfficiencyFromCraft(roll, total, requirements.dc));
+    minimum = Math.min(minimum, progressEfficiencyForProject(project, roll, total, requirements.dc));
   }
   return Number.isFinite(minimum) ? minimum : 1;
 }
@@ -1036,7 +1041,9 @@ function completionProtectedHoursForProject(state: CampaignState, project: Forge
   const requirements = getProjectRequirements(project);
   const remaining = Math.max(0, requirements.hours - project.hoursInvested);
   if (remaining === 0) return 0;
-  return Math.max(remaining, Math.ceil(remaining / Math.max(0.25, minimumProgressEfficiencyForProject(state, project))));
+  const worstCaseProtection = Math.ceil(remaining / Math.max(0.25, minimumProgressEfficiencyForProject(state, project)));
+  const practicalBufferLimit = Math.ceil(remaining * 1.5);
+  return Math.max(remaining, Math.min(worstCaseProtection, practicalBufferLimit));
 }
 
 function totalProtectedCommissionHours(state: CampaignState): number {
@@ -1114,9 +1121,20 @@ export function allocateCommissionProjectHours(state: CampaignState, commissionH
   const allocation = new Map<string, number>();
 
   for (const { project } of active) {
-    const assigned = Math.min(remainingPool, completionProtectedHoursForProject(state, project));
+    const requirements = getProjectRequirements(project);
+    const nominalHours = Math.max(0, requirements.hours - project.hoursInvested);
+    const assigned = Math.min(remainingPool, nominalHours);
     allocation.set(project.id, assigned);
     remainingPool -= assigned;
+  }
+
+  for (const { project } of active) {
+    if (remainingPool <= 0) break;
+    const assigned = allocation.get(project.id) ?? 0;
+    const protectedHours = completionProtectedHoursForProject(state, project);
+    const bufferAssigned = Math.min(remainingPool, Math.max(0, protectedHours - assigned));
+    allocation.set(project.id, assigned + bufferAssigned);
+    remainingPool -= bufferAssigned;
   }
 
   return state.projects
@@ -1433,7 +1451,7 @@ export function forecastMonthlyPlan(state: CampaignState, draft: MonthlyResoluti
       const requirements = getProjectRequirements(project);
       const craftTotal = roll + craftBonusForProject(state, project);
       const quality = craftQualityFromTotal(roll, craftTotal, requirements.dc);
-      const progressAdded = Math.floor((effective.projectHours[project.id] ?? 0) * progressEfficiencyFromCraft(roll, craftTotal, requirements.dc));
+      const progressAdded = Math.floor((effective.projectHours[project.id] ?? 0) * progressEfficiencyForProject(project, roll, craftTotal, requirements.dc));
       const completed = project.hoursInvested + progressAdded >= requirements.hours;
       if (completed) {
         completionCounts[project.id] = (completionCounts[project.id] ?? 0) + 1;
@@ -1610,7 +1628,7 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
     const craftTotal = roll + craftBonusForProject(state, project);
     const quality = craftQualityFromTotal(roll, craftTotal, requirements.dc);
     const hoursBefore = project.hoursInvested;
-    const hoursAdded = Math.floor((effective.projectHours[project.id] ?? 0) * progressEfficiencyFromCraft(roll, craftTotal, requirements.dc));
+    const hoursAdded = Math.floor((effective.projectHours[project.id] ?? 0) * progressEfficiencyForProject(project, roll, craftTotal, requirements.dc));
     const hoursAfter = Math.min(requirements.hours, hoursBefore + hoursAdded);
     const completedThisMonth = hoursAfter >= requirements.hours;
     const report = calculateProjectFinancials(

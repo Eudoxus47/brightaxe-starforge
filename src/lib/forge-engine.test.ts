@@ -203,9 +203,19 @@ describe("staged monthly resolution", () => {
 
     expect(byId["purple-worm-tooth"].allocatedHours).toBeGreaterThan(purple?.requiredHours ?? 0);
     expect(byId["purple-worm-tooth"].fundingStatus).toBe("buffered");
-    expect(byId["iron-doors-mermaid"].allocatedHours).toBeGreaterThan(ironDoors?.requiredHours ?? 0);
-    expect(byId["iron-doors-mermaid"].bufferHours).toBeGreaterThan(0);
-    expect(plans.reduce((total, plan) => total + plan.allocatedHours, 0)).toBe(660);
+    expect(byId["purple-worm-tooth"].protectedHours).toBe(252);
+    expect(byId["iron-doors-mermaid"].allocatedHours).toBe(ironDoors?.requiredHours);
+    expect(byId["iron-doors-mermaid"].bufferHours).toBe(0);
+    expect(plans.reduce((total, plan) => total + plan.allocatedHours, 0)).toBe(574);
+  });
+
+  it("funds every commission nominally before allocating risk buffers", () => {
+    const plans = allocateCommissionProjectHours(initialCampaignState, 490);
+    const byId = Object.fromEntries(plans.map((plan) => [plan.projectId, plan]));
+
+    expect(Object.values(byId).every((plan) => plan.fundingStatus === "funded")).toBe(true);
+    expect(byId["purple-worm-tooth"].bufferHours).toBe(0);
+    expect(byId["iron-doors-mermaid"].allocatedHours).toBe(byId["iron-doors-mermaid"].nominalHours);
   });
 
   it("distinguishes inventory material variants for display", () => {
@@ -275,6 +285,8 @@ describe("staged monthly resolution", () => {
     expect(bonuses.blacksmithing + toolForgeBonus).toBe(7);
     expect(ironDoors?.item.category).toBe("blacksmithing");
     expect(ironDoors?.client).toBe("The Mermaid");
+    expect(ironDoors?.craftDc).toBe(18);
+    expect(ironDoors?.requiredHours).toBe(56);
   });
 
   it("forecasts deterministically without mutating campaign state", () => {
