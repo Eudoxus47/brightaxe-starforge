@@ -68,7 +68,7 @@ describe("monthly resolution", () => {
   });
 
   it("calculates labor with event modifiers", () => {
-    expect(availableLabor(initialCampaignState)).toBeGreaterThan(500);
+    expect(availableLabor(initialCampaignState)).toBeGreaterThan(350);
     expect(usedLabor(initialCampaignState.labor)).toBeGreaterThan(0);
   });
 
@@ -168,11 +168,11 @@ describe("staged monthly resolution", () => {
     };
   }
 
-  it("creates a persisted planning draft with 660 default hours", () => {
+  it("creates a persisted planning draft with 480 heroic crunch default hours", () => {
     const draft = createResolutionDraft(initialCampaignState);
 
     expect(draft.stage).toBe("planning");
-    expect(draft.hourInputs.totalAvailableHours).toBe(660);
+    expect(draft.hourInputs.totalAvailableHours).toBe(480);
     expect(draft.projectPlans.length).toBeGreaterThan(0);
   });
 

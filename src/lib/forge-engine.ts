@@ -1431,7 +1431,7 @@ function effectiveAllocation(draft: MonthlyResolutionDraft, eventHours: ReturnTy
   const commissionTarget = Math.max(0, draft.allocation.commissionWorkHours + hoursByTarget.commission);
   const genericTarget = Math.max(0, draft.allocation.genericShopWorkHours + hoursByTarget.inventory + hoursByTarget.materials);
   const repairTarget = Math.max(0, draft.allocation.repairsWalkinsHours + hoursByTarget.shop);
-  const jordyTarget = Math.min(240, Math.max(0, draft.allocation.jordyTrainingHours));
+  const jordyTarget = Math.min(80, Math.max(0, draft.allocation.jordyTrainingHours));
   const requested = commissionTarget + genericTarget + repairTarget + jordyTarget;
   const baseUnusedHours = Math.max(0, recomputedTotalHours(draft) - requested);
   const scale = requested > available && requested > 0 ? available / requested : 1;

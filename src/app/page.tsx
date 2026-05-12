@@ -92,7 +92,7 @@ const itemTypeOptions: Array<{ value: CraftItemType; label: string }> = [
   { value: "other_metal", label: "Other Metal" },
 ];
 
-const jordyMonthlyHourCap = 240;
+const jordyMonthlyHourCap = 80;
 
 function computedMonthlyHours(inputs: MonthlyResolutionDraft["hourInputs"]) {
   const baseTotal = Math.max(0, inputs.baseHours) + Math.max(0, inputs.ringOfSustenanceBonus) + Math.max(0, inputs.workaholicBonus);
@@ -825,11 +825,12 @@ function PlanningStage({
   }
 
   function updateAllocation(key: keyof MonthlyResolutionDraft["allocation"], value: number) {
-      const maxHours = key === "jordyTrainingHours" ? Math.min(jordyMonthlyHourCap, Math.max(0, totalAvailable)) : Math.max(0, totalAvailable);
-      const nextValue = Math.min(maxHours, Math.max(0, Math.round(value)));
+      const totalCap = Math.max(0, totalAvailable);
+      const activeCap = key === "jordyTrainingHours" ? Math.min(jordyMonthlyHourCap, totalCap) : totalCap;
+      const nextValue = Math.min(activeCap, Math.max(0, Math.round(value)));
     setDraft((current) => {
       const otherKeys = allocationControls.map((control) => control.key).filter((candidate) => candidate !== key);
-      const remaining = Math.max(0, maxHours - nextValue);
+      const remaining = Math.max(0, totalCap - nextValue);
       const otherTotal = otherKeys.reduce((total, candidate) => total + Math.max(0, current.allocation[candidate]), 0);
       let assigned = 0;
       const allocation = { ...current.allocation, [key]: nextValue };
@@ -839,7 +840,7 @@ function PlanningStage({
           index === otherKeys.length - 1
             ? remaining - assigned
             : Math.floor(remaining * (otherTotal > 0 ? Math.max(0, current.allocation[candidate]) / otherTotal : 1 / otherKeys.length));
-        allocation[candidate] = Math.min(candidate === "jordyTrainingHours" ? jordyMonthlyHourCap : maxHours, Math.max(0, share));
+        allocation[candidate] = Math.min(candidate === "jordyTrainingHours" ? jordyMonthlyHourCap : totalCap, Math.max(0, share));
         assigned += allocation[candidate];
       });
 
@@ -1879,7 +1880,7 @@ function RulesSettingsOverlay({
           <p>Masterwork adds +4 DC and +50% time. Dwarvencraft implies Masterwork, then adds +2 DC, +25% time, and the Dwarvencraft surcharge. Special materials add their DC and time modifiers. Craft ranks can halve time up to three times, and check margin can resolve final completion when a funded commission rolls.</p>
           <p>Materials are guild-backed. Taark tracks on-hand pounds and true costs, but shortages do not block crafting. Missing materials are assumed to be supplied through guild channels and charged through the month.</p>
           <p>The ledger now starts from true value: completed commission value, shop sales, and repairs. Taark&apos;s Perfectionism is then shown as an explicit extra material/work cost for rejected, overbuilt, re-smelted, refit, or over-polished goods. Strong rolls and commission-heavy months can exceed the DM target; the target and sigma are guidance, not a hard cap.</p>
-          <p>Monthly Event Mod is a percentage modifier to the whole month&apos;s available forge hours. Jordy&apos;s training slider is capped at 240 hours, roughly 8 hours per day across a 30-day month.</p>
+          <p>Monthly Event Mod is a percentage modifier to the whole month&apos;s available forge hours. Jordy&apos;s training slider is capped at 80 hours, treating him as a child helper rather than another full worker.</p>
         </div>
       </section>
     </div>
