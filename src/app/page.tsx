@@ -297,6 +297,14 @@ export default function Home() {
         />
 
         <nav className="nav-rail ornate-panel">
+          <button type="button" className={`now-playing ${musicEnabled ? "active" : ""}`} onClick={() => setMusicEnabled((current) => !current)}>
+            {musicEnabled ? <Volume2 className="size-5" /> : <Music className="size-5" />}
+            <div>
+              <span>Now Playing</span>
+              <strong>{musicEnabled ? "Forge loop active" : "Start music loop"}</strong>
+              <small>Tavern ambient</small>
+            </div>
+          </button>
           {navItems.map((item) => {
             const Icon = item.icon;
             const panel = item.label.toLowerCase() as InfoPanel;
@@ -312,14 +320,6 @@ export default function Home() {
               </button>
             );
           })}
-          <button type="button" className={`now-playing ${musicEnabled ? "active" : ""}`} onClick={() => setMusicEnabled((current) => !current)}>
-            {musicEnabled ? <Volume2 className="size-5" /> : <Music className="size-5" />}
-            <div>
-              <span>Now Playing</span>
-              <strong>{musicEnabled ? "Forge loop active" : "Start music loop"}</strong>
-              <small>Tavern ambient</small>
-            </div>
-          </button>
         </nav>
 
         <ForgeInventoryBand state={state} onUpdateInventory={updateInventory} />
@@ -1396,6 +1396,17 @@ function ResourcesPanel({
   onReset: () => void;
   importError: string;
 }) {
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  function handleReset() {
+    if (!confirmReset) {
+      setConfirmReset(true);
+      return;
+    }
+    onReset();
+    setConfirmReset(false);
+  }
+
   return (
     <section id="resources" className="resources-panel ornate-panel">
       <div>
@@ -1420,18 +1431,20 @@ function ResourcesPanel({
         <div className="save-actions">
           <button className="small-button" onClick={onExportJson}>
             <Download className="size-4" />
-            Export
+            Save JSON
           </button>
           <label className="small-button cursor-pointer">
             <Upload className="size-4" />
-            Import
+            Load JSON
             <input type="file" accept="application/json" onChange={onImportJson} className="hidden" />
           </label>
         </div>
+        <p className="save-note">Shared saves live in Redis online. Save JSON downloads a local backup file.</p>
         {importError && <p className="error-text">{importError}</p>}
-        <button className="danger-button" onClick={onReset}>
-          Reset Local Campaign
+        <button className={`danger-button ${confirmReset ? "armed" : ""}`} onClick={handleReset}>
+          {confirmReset ? "Confirm Reset to Default" : "Reset Simulation"}
         </button>
+        {confirmReset && <button className="small-button" onClick={() => setConfirmReset(false)}>Cancel Reset</button>}
       </div>
     </section>
   );

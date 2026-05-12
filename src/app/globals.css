@@ -83,8 +83,8 @@ select:focus {
   display: grid;
   height: calc(100vh - 16px);
   min-width: 1180px;
-  grid-template-columns: 180px minmax(540px, 1fr) 330px;
-  grid-template-rows: 118px minmax(250px, 1fr) 198px;
+  grid-template-columns: 220px minmax(560px, 1fr) 330px;
+  grid-template-rows: 118px minmax(220px, 1fr) 238px;
   grid-template-areas:
     "identity center right"
     "nav center right"
@@ -240,7 +240,7 @@ select:focus {
 
 .nav-button {
   display: flex;
-  min-height: 36px;
+  min-height: 33px;
   width: 100%;
   align-items: center;
   gap: 10px;
@@ -264,7 +264,6 @@ select:focus {
   display: grid;
   grid-template-columns: 34px 1fr;
   gap: 8px;
-  margin-top: auto;
   border: 1px solid rgba(183, 123, 63, 0.34);
   padding: 8px;
   color: #9f8bba;
@@ -293,7 +292,7 @@ select:focus {
   grid-area: center;
   display: grid;
   min-width: 0;
-  grid-template-rows: 80px auto minmax(250px, 1fr) 188px;
+  grid-template-rows: 80px auto minmax(220px, 1fr) 238px;
   gap: 7px;
 }
 
@@ -1280,6 +1279,23 @@ select:focus {
   margin-top: 8px;
 }
 
+.campaign-tools-compact .danger-button.armed {
+  background: rgba(88, 20, 12, 0.88);
+  color: #ffe0c2;
+}
+
+.campaign-tools-compact .small-button {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.save-note {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+  margin-top: 6px;
+}
+
 .info-popup {
   position: absolute;
   left: 188px;
@@ -1525,7 +1541,7 @@ select:focus {
 
   .dashboard-frame {
     min-width: 0;
-    grid-template-columns: 180px minmax(0, 1fr) 330px;
+    grid-template-columns: 220px minmax(0, 1fr) 330px;
   }
 
   .events-panel {
