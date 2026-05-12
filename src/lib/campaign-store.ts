@@ -1,5 +1,5 @@
 import { Redis } from "@upstash/redis";
-import { createResolutionDraft, normalizeCampaignState } from "./forge-engine";
+import { allocateCommissionProjectHours, createResolutionDraft, normalizeCampaignState } from "./forge-engine";
 import type { CampaignSaveRequest, SharedCampaignDocument } from "./forge-types";
 import { initialCampaignState } from "./seed";
 
@@ -68,10 +68,22 @@ export function normalizeSharedCampaignDocument(value: unknown): SharedCampaignD
   const candidate = value as Partial<SharedCampaignDocument>;
   const normalizedState = normalizeCampaignState(candidate.state);
   if (!normalizedState || candidate.draft?.version !== 1) return null;
+  const autoProjectPlans = allocateCommissionProjectHours(normalizedState, candidate.draft.allocation.commissionWorkHours);
+  const draft =
+    candidate.draft.month === normalizedState.currentMonth
+      ? {
+          ...candidate.draft,
+          projectPlans: autoProjectPlans,
+          projectRolls: autoProjectPlans.map((plan) => {
+            const existing = candidate.draft?.projectRolls.find((roll) => roll.projectId === plan.projectId)?.roll;
+            return existing === undefined ? { projectId: plan.projectId } : { projectId: plan.projectId, roll: existing };
+          }),
+        }
+      : createResolutionDraft(normalizedState);
 
   return {
     state: normalizedState,
-    draft: candidate.draft.month === normalizedState.currentMonth ? candidate.draft : createResolutionDraft(normalizedState),
+    draft,
     revision: Number.isFinite(candidate.revision) && candidate.revision ? Number(candidate.revision) : 1,
     updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : new Date().toISOString(),
     updatedBy: typeof candidate.updatedBy === "string" ? candidate.updatedBy : "unknown",

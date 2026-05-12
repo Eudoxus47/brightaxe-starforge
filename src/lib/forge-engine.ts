@@ -25,6 +25,7 @@ import type {
   ProjectEconomicMode,
   ProjectFinancials,
   ProjectMaterial,
+  ProjectMonthlyPlan,
   ProjectTemplateName,
   ResolutionCard,
   ResolutionResult,
@@ -354,6 +355,24 @@ export function materialRowsFromRecipe(
     suppliedBy,
     reimbursed,
   }));
+}
+
+export function itemPrimaryMaterialLabel(item: ForgeItem) {
+  if (item.specialMaterial) return item.specialMaterial;
+  const entries = Object.entries(item.materialRecipe) as Array<[MaterialName, number | undefined]>;
+  return entries.sort((left, right) => (right[1] ?? 0) - (left[1] ?? 0))[0]?.[0] ?? "Mixed";
+}
+
+export function itemRecipeSummary(item: ForgeItem) {
+  return (Object.entries(item.materialRecipe) as Array<[MaterialName, number | undefined]>)
+    .filter(([, lbs]) => Boolean(lbs))
+    .map(([material, lbs]) => `${lbs} lb ${material}`)
+    .join(", ");
+}
+
+export function inventoryItemDisplayName(item: ForgeItem) {
+  const material = itemPrimaryMaterialLabel(item);
+  return item.name.toLowerCase().includes(material.toLowerCase()) ? item.name : `${material} ${item.name}`;
 }
 
 function materialCost(materials: MaterialInventory, row: ProjectMaterial): number {
@@ -1003,14 +1022,69 @@ function progressEfficiencyFromCraft(roll: number, total: number, dc: number): n
   return 0.5;
 }
 
+const faerunMonths = [
+  "Hammer",
+  "Alturiak",
+  "Ches",
+  "Tarsakh",
+  "Mirtul",
+  "Kythorn",
+  "Flamerule",
+  "Eleasis",
+  "Elient",
+  "Marpenoth",
+  "Uktar",
+  "Nightal",
+];
+const campaignStartMonthIndex = 8;
+const campaignStartYear = 1374;
+
+export function campaignCalendarLabel(monthNumber: number): string {
+  const offset = Math.max(0, Math.round(monthNumber) - 1);
+  const absoluteMonth = campaignStartMonthIndex + offset;
+  const year = campaignStartYear + Math.floor(absoluteMonth / faerunMonths.length);
+  return `${faerunMonths[absoluteMonth % faerunMonths.length]} ${year} DR`;
+}
+
+const priorityWeight: Record<Priority, number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+export function allocateCommissionProjectHours(state: CampaignState, commissionHours: number): ProjectMonthlyPlan[] {
+  const active = state.projects
+    .map((project, index) => ({ project, index }))
+    .filter(({ project }) => project.status === "queued" || project.status === "in_progress")
+    .sort((left, right) => priorityWeight[left.project.priority] - priorityWeight[right.project.priority] || left.index - right.index);
+  let remainingPool = Math.max(0, Math.round(commissionHours));
+  const allocation = new Map<string, number>();
+
+  for (const { project } of active) {
+    const requirements = getProjectRequirements(project);
+    const remainingProjectHours = Math.max(0, requirements.hours - project.hoursInvested);
+    const assigned = Math.min(remainingPool, remainingProjectHours);
+    allocation.set(project.id, assigned);
+    remainingPool -= assigned;
+  }
+
+  return state.projects
+    .filter((project) => project.status === "queued" || project.status === "in_progress")
+    .map((project) => {
+      const allocatedHours = allocation.get(project.id) ?? 0;
+      return {
+        projectId: project.id,
+        selected: allocatedHours > 0,
+        allocatedHours,
+      };
+    });
+}
+
 export function createResolutionDraft(state: CampaignState): MonthlyResolutionDraft {
   const active = state.projects.filter((project) => project.status === "queued" || project.status === "in_progress");
-  const projectPlans = active.map((project) => ({
-    projectId: project.id,
-    selected: (state.labor.projectHours[project.id] ?? 0) > 0,
-    allocatedHours: Math.max(0, state.labor.projectHours[project.id] ?? 0),
-  }));
-  const commissionWorkHours = projectPlans.reduce((total, plan) => total + (plan.selected ? plan.allocatedHours : 0), 0);
+  const commissionWorkHours = active.reduce((total, project) => total + Math.max(0, state.labor.projectHours[project.id] ?? 0), 0);
+  const projectPlans = allocateCommissionProjectHours(state, commissionWorkHours);
   const hourInputs = {
     baseHours: state.profile.baseMonthlyHours,
     ringOfSustenanceBonus: state.profile.ringOfSustenanceHours,
@@ -1099,12 +1173,18 @@ export function validateResolutionPlan(state: CampaignState, draft: MonthlyResol
   const selectedProjectHours = selectedPlans(draft).reduce((total, plan) => total + Math.max(0, plan.allocatedHours), 0);
   const totalAvailable = recomputedTotalHours(draft);
   const activeById = new Map(state.projects.map((project) => [project.id, project]));
+  const totalRemainingCommissionHours = state.projects
+    .filter((project) => project.status === "queued" || project.status === "in_progress")
+    .reduce((total, project) => {
+      const requirements = getProjectRequirements(project);
+      return total + Math.max(0, requirements.hours - project.hoursInvested);
+    }, 0);
 
   if (selectedProjectHours > draft.allocation.commissionWorkHours) {
     warnings.push("Commission allocation exceeds available commission hours.");
   }
-  if (selectedProjectHours < draft.allocation.commissionWorkHours) {
-    warnings.push(`${draft.allocation.commissionWorkHours - selectedProjectHours} commission hours are unused.`);
+  if (draft.allocation.commissionWorkHours > totalRemainingCommissionHours) {
+    warnings.push(`${draft.allocation.commissionWorkHours - totalRemainingCommissionHours} commission hours exceed remaining active commission work.`);
   }
   if (plannedWorkTotal(draft) > totalAvailable) {
     warnings.push("Planned work exceeds total available forge hours.");
@@ -1685,7 +1765,7 @@ export function applyMonthlySimulation(state: CampaignState, simulation: Monthly
   return {
     ...state,
     currentMonth: nextMonth,
-    monthLabel: `Month ${nextMonth}`,
+    monthLabel: campaignCalendarLabel(nextMonth),
     profile: {
       ...state.profile,
       reputation: report.endingReputation,
@@ -1887,7 +1967,7 @@ export function resolveMonth(state: CampaignState): { state: CampaignState; resu
   const nextState: CampaignState = {
     ...state,
     currentMonth: nextMonth,
-    monthLabel: `Month ${nextMonth}`,
+    monthLabel: campaignCalendarLabel(nextMonth),
     profile: {
       ...state.profile,
       reputation: Math.max(0, Math.min(state.profile.maxReputation, state.profile.reputation + reputationDelta)),
@@ -2059,6 +2139,7 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
 
   return {
     ...state,
+    monthLabel: campaignCalendarLabel(state.currentMonth),
     profile: {
       ...state.profile,
       skills: {

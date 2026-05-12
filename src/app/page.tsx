@@ -20,7 +20,6 @@ import {
   Sparkles,
   Star,
   Swords,
-  Trophy,
   Upload,
   Users,
   Volume2,
@@ -29,10 +28,14 @@ import {
 import type { ChangeEvent, KeyboardEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  allocateCommissionProjectHours,
   deriveCraftingStats,
   eventActors,
   forecastMonthlyPlan,
   getProjectRequirements,
+  inventoryItemDisplayName,
+  itemPrimaryMaterialLabel,
+  itemRecipeSummary,
   materialRowsFromRecipe,
   resolveMonthlyDraft,
   rollDie,
@@ -90,8 +93,6 @@ export default function Home() {
   });
 
   const activeProjects = state.projects.filter((project) => project.status === "queued" || project.status === "in_progress");
-  const targetDeficits = state.inventory.filter((stock) => stock.quantity < stock.target);
-
   const outlook = useMemo(() => {
     const targetNet = state.profile.dmTargetProfitGp;
     const projectPressure = Math.min(650, activeProjects.length * 125);
@@ -279,7 +280,6 @@ export default function Home() {
 
           <div className="center-panels">
             <WorkQueue projects={activeProjects} onUpdateProject={updateProject} />
-            <IdleProduction inventory={targetDeficits} />
           </div>
         </section>
 
@@ -322,14 +322,7 @@ export default function Home() {
           </button>
         </nav>
 
-        <section id="inventory" className="stock-band ornate-panel">
-          <PanelTitle icon={Shield} title="The Forge" />
-          <div className="stock-card-grid">
-            {state.inventory.slice(0, 10).map((stock) => (
-              <StockCard key={stock.id} stock={stock} onUpdateInventory={updateInventory} />
-            ))}
-          </div>
-        </section>
+        <ForgeInventoryBand state={state} onUpdateInventory={updateInventory} />
 
         <ResourcesPanel
           state={state}
@@ -364,11 +357,9 @@ function LeftColumn({
       </div>
       <div className="identity-copy">
         <h1>Brightaxe Starforge</h1>
-        <p>Master Smith of Waterdeep</p>
         <strong>{state.profile.name}</strong>
-      </div>
-      <div className="crest">
-        <Trophy className="size-5" />
+        <p>{state.profile.title}</p>
+        <small>{state.monthLabel}</small>
       </div>
       <button className="identity-info-button" type="button" onClick={() => onToggleInfo(activeInfoPanel === "overview" ? null : "overview")}>
         <Sparkles className="size-4" />
@@ -383,8 +374,8 @@ function TopBar({ state }: { state: ReturnType<typeof useLocalCampaign>["state"]
     <header className="top-bar">
       <OrnateBox>
         <CalendarDays className="size-4 text-[#e5b56b]" />
-        <span>7 Mirtul, 1492 DR</span>
-        <small>{state.monthLabel}</small>
+        <span>{state.monthLabel}</span>
+        <small>Waterdeep campaign calendar</small>
       </OrnateBox>
       <OrnateBox>
         <Star className="size-4 text-[#77bfd0]" />
@@ -701,7 +692,7 @@ function PlanningStage({
   canUndoLastMonth: boolean;
 }) {
   const active = state.projects.filter((project) => project.status === "queued" || project.status === "in_progress");
-  const selectedProjectHours = draft.projectPlans.reduce((total, plan) => total + (plan.selected ? plan.allocatedHours : 0), 0);
+  const selectedProjectHours = draft.projectPlans.reduce((total, plan) => total + plan.allocatedHours, 0);
   const warnings = validateResolutionPlan(state, draft);
   const totalAvailable =
     draft.hourInputs.baseHours + draft.hourInputs.ringOfSustenanceBonus + draft.hourInputs.workaholicBonus + draft.hourInputs.eventHourModifier;
@@ -746,16 +737,17 @@ function PlanningStage({
         assigned += allocation[candidate];
       });
 
-      return { ...current, allocation, forecast: undefined, simulation: undefined };
+      return {
+        ...current,
+        allocation,
+        projectPlans:
+          key === "commissionWorkHours" || allocation.commissionWorkHours !== current.allocation.commissionWorkHours
+            ? allocateCommissionProjectHours(state, allocation.commissionWorkHours)
+            : current.projectPlans,
+        forecast: undefined,
+        simulation: undefined,
+      };
     });
-  }
-
-  function updateProjectPlan(projectId: string, update: Partial<{ selected: boolean; allocatedHours: number }>) {
-    setDraft((current) => ({
-      ...current,
-      projectPlans: current.projectPlans.map((plan) => (plan.projectId === projectId ? { ...plan, ...update } : plan)),
-      simulation: undefined,
-    }));
   }
 
   return (
@@ -789,20 +781,17 @@ function PlanningStage({
         {active.map((project) => {
           const plan = draft.projectPlans.find((candidate) => candidate.projectId === project.id) ?? { projectId: project.id, selected: false, allocatedHours: 0 };
           const requirements = getProjectRequirements(project);
+          const remaining = Math.max(0, requirements.hours - project.hoursInvested);
+          const chance = liveForecast.probabilityEachProjectCompletes[project.id] ?? 0;
           return (
-            <label key={project.id} className="project-plan-row">
-              <input type="checkbox" checked={plan.selected} onChange={(event) => updateProjectPlan(project.id, { selected: event.target.checked })} />
+            <div key={project.id} className={`project-plan-row ${plan.allocatedHours > 0 ? "allocated" : ""}`}>
               <span>
                 <strong>{project.name}</strong>
-                <small>{project.hoursInvested}/{requirements.hours}h | DC {requirements.dc}</small>
+                <small>{project.priority} | {project.hoursInvested}/{requirements.hours}h | DC {requirements.dc}</small>
               </span>
-              <input
-                type="number"
-                min="0"
-                value={plan.allocatedHours}
-                onChange={(event) => updateProjectPlan(project.id, { allocatedHours: Math.max(0, Number(event.target.value)) })}
-              />
-            </label>
+              <em>{plan.allocatedHours}h</em>
+              <small>{remaining}h left | {Math.round(chance * 100)}%</small>
+            </div>
           );
         })}
       </div>
@@ -1386,23 +1375,6 @@ function WorkQueue({
   );
 }
 
-function IdleProduction({ inventory }: { inventory: ReturnType<typeof useLocalCampaign>["state"]["inventory"] }) {
-  const rows = inventory.length > 0 ? inventory : [];
-
-  return (
-    <section className="ornate-panel idle-production">
-      <PanelTitle icon={Hammer} title="Idle Time Production" />
-      <p>When idle, create standard goods to keep the shop stocked.</p>
-      <div className="mini-list">
-        {rows.length === 0 && <StatRow label="All targets" value="Stocked" />}
-        {rows.slice(0, 7).map((stock) => (
-          <StatRow key={stock.id} label={stock.item.name} value={`${stock.quantity}/${stock.target}`} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function ResourcesPanel({
   state,
   onUpdateMaterial,
@@ -1493,27 +1465,76 @@ function ShopSummary({
   );
 }
 
-function StockCard({
+function ForgeInventoryBand({
+  state,
+  onUpdateInventory,
+}: {
+  state: ReturnType<typeof useLocalCampaign>["state"];
+  onUpdateInventory: (id: string, update: { quantity?: number; target?: number }) => void;
+}) {
+  const deficits = state.inventory.filter((stock) => stock.quantity < stock.target);
+  const productionPreview = deficits.slice(0, 4).map((stock) => {
+    const requirements = deriveCraftingStats(stock.item);
+    const possible = Math.floor(Math.max(0, state.labor.genericInventory) / Math.max(1, requirements.hours));
+    return `${inventoryItemDisplayName(stock.item)}: need ${Math.max(0, stock.target - stock.quantity)}, about ${possible} possible`;
+  });
+
+  return (
+    <section id="inventory" className="stock-band ornate-panel">
+      <div className="inventory-header">
+        <PanelTitle icon={Shield} title="Forge Inventory" />
+        <div className="production-targets">
+          <strong>Production Targets</strong>
+          <span>{productionPreview.length ? productionPreview.join(" | ") : "All target stock is filled."}</span>
+        </div>
+      </div>
+      <div className="inventory-ledger">
+        {state.inventory.map((stock) => (
+          <InventoryRow key={stock.id} stock={stock} onUpdateInventory={onUpdateInventory} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function InventoryRow({
   stock,
   onUpdateInventory,
 }: {
   stock: ReturnType<typeof useLocalCampaign>["state"]["inventory"][number];
   onUpdateInventory: (id: string, update: { quantity?: number; target?: number }) => void;
 }) {
+  const Icon = stock.item.category === "weaponsmithing" ? Swords : Shield;
+  const deficit = Math.max(0, stock.target - stock.quantity);
+
   return (
-    <article className="stock-card">
-      <div className="stock-icon">
-        {stock.item.category === "weaponsmithing" ? <Swords className="size-7" /> : <Shield className="size-7" />}
+    <article className={`inventory-row ${deficit > 0 ? "needs-stock" : ""}`}>
+      <Icon className="size-4" />
+      <div>
+        <strong>{inventoryItemDisplayName(stock.item)}</strong>
+        <span>{stock.item.category} | {itemRecipeSummary(stock.item)}</span>
       </div>
-      <input
-        aria-label={`${stock.item.name} stock`}
-        type="number"
-        min="0"
-        value={stock.quantity}
-        onChange={(event) => onUpdateInventory(stock.id, { quantity: Number(event.target.value) })}
-      />
-      <strong>{stock.item.name}</strong>
-      <span>Target {stock.target}</span>
+      <em>{itemPrimaryMaterialLabel(stock.item)}</em>
+      <label>
+        Qty
+        <input
+          aria-label={`${stock.item.name} stock`}
+          type="number"
+          min="0"
+          value={stock.quantity}
+          onChange={(event) => onUpdateInventory(stock.id, { quantity: Number(event.target.value) })}
+        />
+      </label>
+      <label>
+        Target
+        <input
+          aria-label={`${stock.item.name} target`}
+          type="number"
+          min="0"
+          value={stock.target}
+          onChange={(event) => onUpdateInventory(stock.id, { target: Number(event.target.value) })}
+        />
+      </label>
     </article>
   );
 }

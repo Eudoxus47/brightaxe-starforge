@@ -1,4 +1,4 @@
-import { defaultMaterialCosts, deriveCraftingStats, generateMonthlyEvents, materialRowsFromRecipe, materialStockToInventory } from "./forge-engine";
+import { campaignCalendarLabel, defaultMaterialCosts, deriveCraftingStats, generateMonthlyEvents, materialRowsFromRecipe, materialStockToInventory } from "./forge-engine";
 import type { CampaignState, ForgeItem, ForgeProject, InventoryItem, MaterialInventory, MaterialName } from "./forge-types";
 
 const armor = (
@@ -165,7 +165,7 @@ const projects = [
 export const initialCampaignState: CampaignState = {
   version: 2,
   currentMonth: 1,
-  monthLabel: "Month 1",
+  monthLabel: campaignCalendarLabel(1),
   profile: {
     name: "Taark Brightaxe",
     title: "Master dwarven armorsmith beneath The Mermaid",

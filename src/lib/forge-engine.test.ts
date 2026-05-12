@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   availableLabor,
+  allocateCommissionProjectHours,
   applyMonthlySimulation,
+  campaignCalendarLabel,
   craftQualityFromRoll,
   createEventResolution,
   createResolutionDraft,
@@ -11,6 +13,10 @@ import {
   forecastMonthlyPlan,
   generateMonthlyEvents,
   getProjectRequirements,
+  inventoryItemDisplayName,
+  itemPrimaryMaterialLabel,
+  itemRecipeSummary,
+  normalizeCampaignState,
   outcomeFromMargin,
   progressEfficiencyFromRoll,
   resolveMonthlyDraft,
@@ -160,6 +166,36 @@ describe("staged monthly resolution", () => {
     expect(draft.stage).toBe("planning");
     expect(draft.hourInputs.totalAvailableHours).toBe(660);
     expect(draft.projectPlans.length).toBeGreaterThan(0);
+  });
+
+  it("uses the Elient 1374 DR campaign calendar and normalizes old month labels", () => {
+    expect(campaignCalendarLabel(1)).toBe("Elient 1374 DR");
+    expect(campaignCalendarLabel(2)).toBe("Marpenoth 1374 DR");
+    expect(campaignCalendarLabel(5)).toBe("Hammer 1375 DR");
+
+    const normalized = normalizeCampaignState({ ...initialCampaignState, currentMonth: 4, monthLabel: "Month 4" });
+    expect(normalized?.monthLabel).toBe("Nightal 1374 DR");
+  });
+
+  it("auto-allocates commission slider hours by priority and caps at remaining work", () => {
+    const plans = allocateCommissionProjectHours(initialCampaignState, 120);
+    const byId = Object.fromEntries(plans.map((plan) => [plan.projectId, plan]));
+
+    expect(byId["basenhack-full-plate"].allocatedHours).toBe(0);
+    expect(byId["fairstream-breastplate"].allocatedHours).toBe(100);
+    expect(byId["purple-worm-tooth"].allocatedHours).toBe(20);
+    expect(byId["iron-doors-mermaid"].allocatedHours).toBe(0);
+    expect(plans.filter((plan) => plan.selected).every((plan) => plan.allocatedHours > 0)).toBe(true);
+  });
+
+  it("distinguishes inventory material variants for display", () => {
+    const steelBreastplate = initialCampaignState.inventory.find((stock) => stock.id === "breastplate-mw");
+    const mithrilBreastplate = initialCampaignState.inventory.find((stock) => stock.id === "mithril-breastplate");
+
+    expect(steelBreastplate && inventoryItemDisplayName(steelBreastplate.item)).toBe("Steel Breastplate (MW)");
+    expect(mithrilBreastplate && inventoryItemDisplayName(mithrilBreastplate.item)).toBe("Mithril Breastplate");
+    expect(mithrilBreastplate && itemPrimaryMaterialLabel(mithrilBreastplate.item)).toBe("Mithril");
+    expect(steelBreastplate && itemRecipeSummary(steelBreastplate.item)).toContain("30 lb Steel");
   });
 
   it("validates over-allocated commission hours", () => {

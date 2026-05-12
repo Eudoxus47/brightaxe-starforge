@@ -88,7 +88,7 @@ select:focus {
   grid-template-areas:
     "identity center right"
     "nav center right"
-    "stock resources right";
+    "resources stock right";
   gap: 7px;
   border: 2px solid #4a2d17;
   background: #080706;
@@ -140,15 +140,15 @@ select:focus {
 .identity-card {
   grid-area: identity;
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
-  gap: 7px;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
   overflow: hidden;
-  padding: 9px;
+  padding: 10px;
 }
 
 .portrait-frame {
   display: grid;
-  min-height: 88px;
+  min-height: 94px;
   place-items: center;
   border: 1px solid rgba(183, 123, 63, 0.6);
   background:
@@ -171,24 +171,31 @@ select:focus {
 .identity-copy h1 {
   color: var(--brass);
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 17px;
+  font-size: 14px;
   line-height: 0.98;
   text-transform: uppercase;
 }
 
 .identity-copy p,
-.identity-copy strong {
+.identity-copy strong,
+.identity-copy small {
   display: block;
-  margin-top: 5px;
+  margin-top: 4px;
   color: #f2ddb4;
-  font-size: 10px;
+  font-size: 9px;
+  line-height: 1.25;
 }
 
 .identity-copy strong {
   color: #ffe3a6;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 11px;
-  letter-spacing: 0.04em;
+}
+
+.identity-copy small {
+  color: var(--teal);
+  font-size: 10px;
+  text-transform: uppercase;
 }
 
 .crest {
@@ -373,7 +380,6 @@ select:focus {
 
 .center-panels {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
   gap: 7px;
   min-height: 0;
 }
@@ -859,12 +865,16 @@ select:focus {
 
 .project-plan-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 68px;
+  grid-template-columns: minmax(0, 1fr) 52px 96px;
   align-items: center;
   gap: 6px;
   border: 1px solid rgba(183, 123, 63, 0.24);
   background: rgba(0, 0, 0, 0.18);
   padding: 6px;
+}
+
+.project-plan-row.allocated {
+  border-color: rgba(133, 196, 192, 0.45);
 }
 
 .project-plan-row span,
@@ -887,9 +897,10 @@ select:focus {
   font-size: 9px;
 }
 
-.project-plan-row input[type="number"] {
-  width: 100%;
-  padding: 4px;
+.project-plan-row em {
+  color: var(--teal);
+  font-size: 12px;
+  font-style: normal;
   text-align: right;
 }
 
@@ -1149,54 +1160,115 @@ select:focus {
 
 .stock-band {
   grid-area: stock;
-  padding: 12px;
-}
-
-.stock-card-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(72px, 1fr));
-  gap: 5px;
+  min-width: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+  padding: 10px;
 }
 
-.stock-card {
-  position: relative;
+.inventory-header {
   display: grid;
-  min-height: 134px;
-  grid-template-rows: 38px auto 1fr auto;
-  gap: 5px;
-  border: 1px solid rgba(183, 123, 63, 0.4);
-  background: linear-gradient(180deg, rgba(26, 32, 33, 0.9), rgba(9, 10, 10, 0.96));
-  padding: 8px 6px;
-  text-align: center;
+  grid-template-columns: minmax(0, 190px) minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
 }
 
-.stock-icon {
-  min-height: 38px;
+.production-targets {
+  display: grid;
+  gap: 3px;
+  border: 1px solid rgba(133, 196, 192, 0.25);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 6px 8px;
 }
 
-.stock-card input {
-  justify-self: end;
-  width: 42px;
-  text-align: center;
+.production-targets strong {
+  color: var(--teal);
+  font-size: 10px;
+  text-transform: uppercase;
 }
 
-.stock-card strong {
-  color: #f5dfb3;
-  font-size: 11px;
-  line-height: 1.25;
-}
-
-.stock-card span {
+.production-targets span {
+  overflow: hidden;
   color: var(--muted);
   font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-ledger {
+  display: grid;
+  gap: 5px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.inventory-row {
+  display: grid;
+  grid-template-columns: 20px minmax(180px, 1fr) 64px 52px 58px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(183, 123, 63, 0.34);
+  background: linear-gradient(180deg, rgba(24, 29, 29, 0.9), rgba(8, 10, 10, 0.95));
+  padding: 5px 6px;
+}
+
+.inventory-row.needs-stock {
+  border-color: rgba(215, 164, 95, 0.62);
+}
+
+.inventory-row strong,
+.inventory-row span {
+  display: block;
+  min-width: 0;
+}
+
+.inventory-row strong {
+  overflow: hidden;
+  color: #f5dfb3;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-row span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-row em {
+  border: 1px solid rgba(133, 196, 192, 0.24);
+  color: var(--teal);
+  font-size: 9px;
+  font-style: normal;
+  padding: 3px 5px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.inventory-row label {
+  color: var(--muted);
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.inventory-row input {
+  width: 100%;
+  margin-top: 2px;
+  padding: 2px;
+  text-align: center;
 }
 
 .resources-panel {
   grid-area: resources;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 10px;
   overflow: auto;
+  padding: 10px;
 }
 
 .campaign-tools-compact {
