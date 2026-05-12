@@ -25,10 +25,12 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import type { ChangeEvent, KeyboardEvent, ReactNode } from "react";
+import type { ChangeEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   allocateCommissionProjectHours,
+  defaultItemTypeForItem,
+  defaultQualityGoalForItem,
   deriveCraftingStats,
   eventActors,
   forecastMonthlyPlan,
@@ -37,11 +39,12 @@ import {
   itemPrimaryMaterialLabel,
   itemRecipeSummary,
   materialRowsFromRecipe,
+  qualityGoalLabel,
   resolveMonthlyDraft,
   rollDie,
   validateResolutionPlan,
 } from "@/lib/forge-engine";
-import type { CampaignState, EventActor, ForgeProject, MaterialName, MonthlyResolutionDraft, MonthlyResolutionSimulation } from "@/lib/forge-types";
+import type { CampaignState, Complexity, CraftItemType, CraftQualityGoal, EventActor, ForgeItem, ForgeProject, MaterialName, MonthlyResolutionDraft, MonthlyResolutionSimulation, SkillKey } from "@/lib/forge-types";
 import { useLocalCampaign } from "@/lib/use-local-campaign";
 
 const navItems = [
@@ -58,6 +61,44 @@ const navItems = [
 ];
 
 type InfoPanel = "overview" | "orders" | "production" | "inventory" | "resources" | "reputation" | "ledger" | "events" | "upgrades" | "visitors";
+
+const skillOptions: Array<{ value: SkillKey; label: string }> = [
+  { value: "armorsmithing", label: "Armor" },
+  { value: "weaponsmithing", label: "Weapon" },
+  { value: "blacksmithing", label: "Blacksmithing" },
+  { value: "finesmithing", label: "Finesmithing" },
+  { value: "locksmithing", label: "Locksmithing" },
+];
+
+const complexityOptions: Array<{ value: Complexity; label: string }> = [
+  { value: "very-simple", label: "Very Simple" },
+  { value: "simple", label: "Simple" },
+  { value: "moderate", label: "Moderate" },
+  { value: "complex", label: "Complex" },
+  { value: "very-complex", label: "Very Complex" },
+];
+
+const qualityOptions: Array<{ value: CraftQualityGoal; label: string }> = [
+  { value: "standard", label: "Standard" },
+  { value: "masterwork", label: "Masterwork" },
+  { value: "dwarvencraft", label: "Dwarvencraft" },
+];
+
+const itemTypeOptions: Array<{ value: CraftItemType; label: string }> = [
+  { value: "armor", label: "Armor" },
+  { value: "shield", label: "Shield" },
+  { value: "weapon", label: "Weapon" },
+  { value: "tool", label: "Tool" },
+  { value: "other_metal", label: "Other Metal" },
+];
+
+const jordyMonthlyHourCap = 240;
+
+function computedMonthlyHours(inputs: MonthlyResolutionDraft["hourInputs"]) {
+  const baseTotal = Math.max(0, inputs.baseHours) + Math.max(0, inputs.ringOfSustenanceBonus) + Math.max(0, inputs.workaholicBonus);
+  const eventPct = Math.max(-90, Math.min(200, inputs.eventHourModifier || 0));
+  return Math.max(0, Math.round(baseTotal * (1 + eventPct / 100)));
+}
 
 export default function Home() {
   const {
@@ -82,14 +123,24 @@ export default function Home() {
   const [importError, setImportError] = useState("");
   const [resolutionError, setResolutionError] = useState("");
   const [activeInfoPanel, setActiveInfoPanel] = useState<InfoPanel | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [musicEnabled, setMusicEnabled] = useState(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [newCommission, setNewCommission] = useState({
     client: "",
     item: "",
     rewardGp: 1000,
-    hours: 80,
-    craftDc: 22,
+    category: "armorsmithing" as SkillKey,
+    complexity: "complex" as Complexity,
+    itemType: "armor" as CraftItemType,
+    qualityGoal: "dwarvencraft" as CraftQualityGoal,
+    primaryMaterial: "Steel" as MaterialName,
+    materialLbs: 20,
+    specialMaterial: "" as "" | MaterialName,
+    hoursOverride: 0,
+    craftDcOverride: 0,
+    take10: false,
   });
 
   const activeProjects = state.projects.filter((project) => project.status === "queued" || project.status === "in_progress");
@@ -134,6 +185,17 @@ export default function Home() {
     audio.play().catch(() => setMusicEnabled(false));
   }, [musicEnabled]);
 
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = false;
+    video.volume = 0.12;
+    video.play().catch(() => {
+      video.muted = true;
+      video.play().catch(() => undefined);
+    });
+  }, []);
+
   function updateMaterial(material: MaterialName, value: number) {
     setState((current) => ({
       ...current,
@@ -162,21 +224,38 @@ export default function Home() {
     }));
   }
 
-  function updateProject(id: string, update: Partial<Pick<ForgeProject, "client" | "trueContractValue" | "requiredHours" | "hoursInvested" | "craftDc" | "priority" | "notes">>) {
+  function updateProfile(update: Partial<CampaignState["profile"]>) {
+    setState((current) => ({ ...current, profile: { ...current.profile, ...update } }));
+    setDraft((current) => ({ ...current, forecast: undefined, simulation: undefined }));
+  }
+
+  function updateProject(id: string, update: Partial<Pick<ForgeProject, "client" | "trueContractValue" | "requiredHours" | "hoursInvested" | "craftDc" | "priority" | "notes" | "item" | "take10" | "resolutionMode" | "hoursOverride" | "craftDcOverride" | "marketPriceOverrideGp" | "rawMaterialCostOverrideGp">>) {
     setState((current) => ({
       ...current,
       projects: current.projects.map((project) => {
         if (project.id !== id) return project;
+        const item = update.item ?? project.item;
+        const stats = deriveCraftingStats(item, current.profile);
         const trueContractValue = update.trueContractValue ?? project.trueContractValue;
-        const materialCost = project.materialCost;
+        const materialCost = update.rawMaterialCostOverrideGp ?? project.rawMaterialCostOverrideGp ?? stats.rawMaterialCostGp;
+        const resolutionMode = update.resolutionMode ?? project.resolutionMode;
+        const requiredHours = update.requiredHours ?? (resolutionMode === "craftingPdf" ? stats.hours : project.requiredHours);
+        const craftDc = update.craftDc ?? (resolutionMode === "craftingPdf" ? stats.dc : project.craftDc);
         return {
           ...project,
           ...update,
+          item,
+          itemType: stats.itemType,
+          resolutionMode,
           trueContractValue,
-          listedItemValue: trueContractValue,
+          listedItemValue: update.marketPriceOverrideGp ?? stats.marketPriceGp,
           laborFee: Math.max(0, trueContractValue - materialCost),
           trueMargin: Math.max(0, trueContractValue - materialCost - project.specialExpenses),
-          hoursInvested: Math.min(Math.max(0, update.hoursInvested ?? project.hoursInvested), update.requiredHours ?? project.requiredHours),
+          materialCost,
+          requiredHours,
+          craftDc,
+          materials: materialRowsFromRecipe(item.materialRecipe, project.materialSupplyMode === "client_supplies" ? "client" : "taark", project.materialSupplyMode === "client_reimburses"),
+          hoursInvested: Math.min(Math.max(0, update.hoursInvested ?? project.hoursInvested), requiredHours),
         };
       }),
     }));
@@ -186,15 +265,20 @@ export default function Home() {
   function addCommission() {
     if (!newCommission.client.trim() || !newCommission.item.trim()) return;
     const id = `custom-${Date.now()}`;
-    const item = {
+    const item: ForgeItem = {
       name: newCommission.item.trim(),
-      category: "armorsmithing" as const,
-      complexity: "complex" as const,
+      category: newCommission.category,
+      itemType: newCommission.itemType,
+      complexity: newCommission.complexity,
       basePriceGp: newCommission.rewardGp,
-      masterwork: true,
-      materialRecipe: { Steel: 20 },
+      masterwork: newCommission.qualityGoal !== "standard",
+      qualityGoal: newCommission.qualityGoal,
+      specialMaterial: newCommission.specialMaterial || undefined,
+      materialRecipe: { [newCommission.primaryMaterial]: Math.max(0, newCommission.materialLbs) },
     };
-    const stats = deriveCraftingStats(item);
+    const stats = deriveCraftingStats(item, state.profile);
+    const requiredHours = newCommission.hoursOverride > 0 ? newCommission.hoursOverride : stats.hours;
+    const craftDc = newCommission.craftDcOverride > 0 ? newCommission.craftDcOverride : stats.dc;
 
     setState((current) => ({
       ...current,
@@ -209,23 +293,26 @@ export default function Home() {
           materialSupplyMode: "taark_supplies",
           payoutMode: "true_contract_value",
           item,
-          itemType: item.name,
+          itemType: stats.itemType,
           priority: "medium",
           status: "queued",
           trueContractValue: newCommission.rewardGp,
-          listedItemValue: item.basePriceGp,
-          materialCost: 20 * (current.materials.Steel?.gpPerLb ?? 1),
+          listedItemValue: stats.marketPriceGp,
+          materialCost: stats.rawMaterialCostGp,
           specialExpenses: 0,
-          laborFee: Math.max(0, newCommission.rewardGp - 20 * (current.materials.Steel?.gpPerLb ?? 1)),
-          trueMargin: Math.max(0, newCommission.rewardGp - 20 * (current.materials.Steel?.gpPerLb ?? 1)),
-          requiredHours: newCommission.hours,
+          laborFee: Math.max(0, newCommission.rewardGp - stats.rawMaterialCostGp),
+          trueMargin: Math.max(0, newCommission.rewardGp - stats.rawMaterialCostGp),
+          requiredHours,
           hoursInvested: 0,
-          craftDc: newCommission.craftDc || stats.dc,
+          craftDc,
           prestige: 1,
           reputationEffectOnCompletion: 1,
           materials: materialRowsFromRecipe(item.materialRecipe),
           notes: "Custom table commission.",
-          resolutionMode: "fixedHours",
+          resolutionMode: newCommission.hoursOverride > 0 || newCommission.craftDcOverride > 0 ? "fixedHours" : "craftingPdf",
+          take10: newCommission.take10,
+          hoursOverride: newCommission.hoursOverride || undefined,
+          craftDcOverride: newCommission.craftDcOverride || undefined,
         },
       ],
       labor: {
@@ -236,12 +323,26 @@ export default function Home() {
         },
       },
     }));
-    setNewCommission({ client: "", item: "", rewardGp: 1000, hours: 80, craftDc: 22 });
+    setNewCommission({
+      client: "",
+      item: "",
+      rewardGp: 1000,
+      category: "armorsmithing",
+      complexity: "complex",
+      itemType: "armor",
+      qualityGoal: "dwarvencraft",
+      primaryMaterial: "Steel",
+      materialLbs: 20,
+      specialMaterial: "",
+      hoursOverride: 0,
+      craftDcOverride: 0,
+      take10: false,
+    });
     setDraft((current) => ({
       ...current,
       projectPlans: [
         ...current.projectPlans,
-        { projectId: id, selected: false, allocatedHours: 0, nominalHours: newCommission.hours, protectedHours: newCommission.hours, bufferHours: 0, fundingStatus: "unfunded" },
+        { projectId: id, selected: false, allocatedHours: 0, nominalHours: requiredHours, protectedHours: requiredHours, bufferHours: 0, fundingStatus: "unfunded" },
       ],
       projectRolls: [...current.projectRolls, { projectId: id }],
     }));
@@ -276,10 +377,10 @@ export default function Home() {
             onReload={reloadSharedCampaign}
             onOverwrite={overwriteSharedCampaign}
           />
-          <ForgeStage />
+          <ForgeStage videoRef={videoRef} />
 
           <div className="center-panels">
-            <WorkQueue projects={activeProjects} onUpdateProject={updateProject} />
+            <WorkQueue state={state} projects={activeProjects} onUpdateProject={updateProject} />
           </div>
         </section>
 
@@ -294,6 +395,7 @@ export default function Home() {
           canUndoLastMonth={canUndoLastMonth}
           resolutionError={resolutionError}
           setResolutionError={setResolutionError}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
 
         <nav className="nav-rail ornate-panel">
@@ -326,14 +428,17 @@ export default function Home() {
         <ForgeInventoryBand state={state} onUpdateInventory={updateInventory} />
 
         <ResourcesPanel
+          state={state}
           newCommission={newCommission}
           setNewCommission={setNewCommission}
           onAddCommission={addCommission}
           onExportJson={exportJson}
           onImportJson={handleImport}
           onReset={reset}
+          onUpdateProfile={updateProfile}
           importError={importError}
         />
+        {settingsOpen && <RulesSettingsOverlay state={state} onUpdateProfile={updateProfile} onClose={() => setSettingsOpen(false)} />}
         {activeInfoPanel && <InfoPopup panel={activeInfoPanel} state={state} projects={activeProjects} onClose={() => setActiveInfoPanel(null)} />}
       </div>
     </main>
@@ -383,10 +488,10 @@ function TopBar({ state }: { state: ReturnType<typeof useLocalCampaign>["state"]
   );
 }
 
-function ForgeStage() {
+function ForgeStage({ videoRef }: { videoRef: RefObject<HTMLVideoElement | null> }) {
   return (
     <section className="forge-art-panel">
-      <video className="forge-art" autoPlay loop muted playsInline poster="/brightaxe-forge-backdrop.png" aria-label="Animated view of the Brightaxe forge">
+      <video ref={videoRef} className="forge-art" autoPlay loop playsInline poster="/brightaxe-forge-backdrop.png" aria-label="Animated view of the Brightaxe forge">
         <source src="/brightaxe-forge-loop.mp4" type="video/mp4" />
       </video>
       <div className="forge-vignette" />
@@ -405,6 +510,7 @@ function RightColumn({
   canUndoLastMonth,
   resolutionError,
   setResolutionError,
+  onOpenSettings,
 }: {
   state: CampaignState;
   outlook: {
@@ -424,6 +530,7 @@ function RightColumn({
   canUndoLastMonth: boolean;
   resolutionError: string;
   setResolutionError: (value: string) => void;
+  onOpenSettings: () => void;
 }) {
   const activeCount = state.projects.filter((project) => project.status === "queued" || project.status === "in_progress").length;
   const completedCount = state.projects.filter((project) => project.status === "completed" || project.status === "delivered").length;
@@ -436,7 +543,9 @@ function RightColumn({
           <span>Eye</span>
           <h2>DM Dashboard</h2>
         </div>
-        <Settings className="size-5" />
+        <button className="icon-button" type="button" onClick={onOpenSettings} title="Open rules and economy settings">
+          <Settings className="size-5" />
+        </button>
       </section>
 
       <section className="ornate-panel">
@@ -555,7 +664,7 @@ function ResolutionWizard({
       ...draft,
       hourInputs: {
         ...draft.hourInputs,
-        totalAvailableHours: draft.hourInputs.baseHours + draft.hourInputs.ringOfSustenanceBonus + draft.hourInputs.workaholicBonus + draft.hourInputs.eventHourModifier,
+        totalAvailableHours: computedMonthlyHours(draft.hourInputs),
       },
     };
     const warnings = validateResolutionPlan(state, nextDraft);
@@ -693,8 +802,7 @@ function PlanningStage({
   const active = state.projects.filter((project) => project.status === "queued" || project.status === "in_progress");
   const selectedProjectHours = draft.projectPlans.reduce((total, plan) => total + plan.allocatedHours, 0);
   const warnings = validateResolutionPlan(state, draft);
-  const totalAvailable =
-    draft.hourInputs.baseHours + draft.hourInputs.ringOfSustenanceBonus + draft.hourInputs.workaholicBonus + draft.hourInputs.eventHourModifier;
+  const totalAvailable = computedMonthlyHours(draft.hourInputs);
   const plannedTotal =
     draft.allocation.commissionWorkHours +
     draft.allocation.genericShopWorkHours +
@@ -709,8 +817,7 @@ function PlanningStage({
         ...current,
         hourInputs: {
           ...hourInputs,
-          totalAvailableHours:
-            hourInputs.baseHours + hourInputs.ringOfSustenanceBonus + hourInputs.workaholicBonus + hourInputs.eventHourModifier,
+          totalAvailableHours: computedMonthlyHours(hourInputs),
         },
         simulation: undefined,
       };
@@ -718,8 +825,8 @@ function PlanningStage({
   }
 
   function updateAllocation(key: keyof MonthlyResolutionDraft["allocation"], value: number) {
-    const maxHours = Math.max(0, totalAvailable);
-    const nextValue = Math.min(maxHours, Math.max(0, Math.round(value)));
+      const maxHours = key === "jordyTrainingHours" ? Math.min(jordyMonthlyHourCap, Math.max(0, totalAvailable)) : Math.max(0, totalAvailable);
+      const nextValue = Math.min(maxHours, Math.max(0, Math.round(value)));
     setDraft((current) => {
       const otherKeys = allocationControls.map((control) => control.key).filter((candidate) => candidate !== key);
       const remaining = Math.max(0, maxHours - nextValue);
@@ -732,7 +839,7 @@ function PlanningStage({
           index === otherKeys.length - 1
             ? remaining - assigned
             : Math.floor(remaining * (otherTotal > 0 ? Math.max(0, current.allocation[candidate]) / otherTotal : 1 / otherKeys.length));
-        allocation[candidate] = Math.max(0, share);
+        allocation[candidate] = Math.min(candidate === "jordyTrainingHours" ? jordyMonthlyHourCap : maxHours, Math.max(0, share));
         assigned += allocation[candidate];
       });
 
@@ -760,7 +867,7 @@ function PlanningStage({
         <NumberField label="Base Hours" value={draft.hourInputs.baseHours} onChange={(value) => updateHours("baseHours", value)} />
         <NumberField label="Ring Bonus" value={draft.hourInputs.ringOfSustenanceBonus} onChange={(value) => updateHours("ringOfSustenanceBonus", value)} />
         <NumberField label="Workaholic" value={draft.hourInputs.workaholicBonus} onChange={(value) => updateHours("workaholicBonus", value)} />
-        <NumberField label="Event Mod" value={draft.hourInputs.eventHourModifier} onChange={(value) => updateHours("eventHourModifier", value)} />
+        <NumberField label="Event Mod %" value={draft.hourInputs.eventHourModifier} onChange={(value) => updateHours("eventHourModifier", value)} />
       </div>
       <div className="slider-stack">
         {allocationControls.map((control) => (
@@ -768,7 +875,7 @@ function PlanningStage({
             key={control.key}
             label={control.label}
             value={draft.allocation[control.key]}
-            max={totalAvailable}
+            max={control.key === "jordyTrainingHours" ? Math.min(jordyMonthlyHourCap, totalAvailable) : totalAvailable}
             tone={control.tone}
             onChange={(value) => updateAllocation(control.key, value)}
           />
@@ -782,12 +889,12 @@ function PlanningStage({
             projectId: project.id,
             selected: false,
             allocatedHours: 0,
-            nominalHours: Math.max(0, getProjectRequirements(project).hours - project.hoursInvested),
-            protectedHours: Math.max(0, getProjectRequirements(project).hours - project.hoursInvested),
+            nominalHours: Math.max(0, getProjectRequirements(project, state).hours - project.hoursInvested),
+            protectedHours: Math.max(0, getProjectRequirements(project, state).hours - project.hoursInvested),
             bufferHours: 0,
             fundingStatus: "unfunded" as const,
           };
-          const requirements = getProjectRequirements(project);
+          const requirements = getProjectRequirements(project, state);
           const remaining = Math.max(0, requirements.hours - project.hoursInvested);
           const chance = liveForecast.probabilityEachProjectCompletes[project.id] ?? 0;
           const fundingNote =
@@ -891,7 +998,10 @@ function RollStage({
   onSimulate: () => void;
 }) {
   const rollBox = useRef<HTMLDivElement>(null);
-  const selected = draft.projectPlans.filter((plan) => plan.selected);
+  const selected = draft.projectPlans.filter((plan) => {
+    const project = state.projects.find((candidate) => candidate.id === plan.projectId);
+    return plan.selected && !project?.take10 && (plan.fundingStatus === "funded" || plan.fundingStatus === "buffered");
+  });
 
   useEffect(() => {
     const firstEmpty = rollBox.current?.querySelector<HTMLInputElement>("input[data-roll-input][value='']");
@@ -938,7 +1048,13 @@ function RollStage({
       },
       projectRolls: current.projectRolls.map((entry, index) => ({
         ...entry,
-        roll: current.projectPlans.find((plan) => plan.projectId === entry.projectId)?.selected ? rollDie(`${seed}:project:${entry.projectId}:${index}`) : undefined,
+        roll: (() => {
+          const plan = current.projectPlans.find((candidate) => candidate.projectId === entry.projectId);
+          const project = state.projects.find((candidate) => candidate.id === entry.projectId);
+          return plan?.selected && !project?.take10 && (plan.fundingStatus === "funded" || plan.fundingStatus === "buffered")
+            ? rollDie(`${seed}:project:${entry.projectId}:${index}`)
+            : undefined;
+        })(),
       })),
       simulation: undefined,
     }));
@@ -1074,9 +1190,11 @@ function LedgerStage({
     <div className="wizard-body ledger-body">
       <div className="summary-strip">
         <StatRow label="Net" value={`${report.totalNetProfit.toLocaleString()} gp`} />
-        <StatRow label="Shop" value={`${report.genericShopProfit.toLocaleString()} gp`} />
+        <StatRow label="True Shop" value={`${report.trueShopValue.toLocaleString()} gp`} />
+        <StatRow label="Perfectionism" value={`${report.perfectionismWaste.toLocaleString()} gp`} />
         <StatRow label="Rep" value={`${report.startingReputation} -> ${report.endingReputation}`} />
       </div>
+      <MiniList title="Profit Explanation" rows={report.ledgerSummaryLines} />
       <MiniList title="Projects" rows={report.projectReports.map((project) => `${project.name}: ${project.hoursAfter}/${project.requiredHours}h, craft ${project.craftingTotal} vs DC ${project.craftDc}, ${project.quality}, ${project.completedThisMonth ? "complete" : "open"}`)} />
       <MiniList title="Materials" rows={(Object.keys(report.materialsBefore) as MaterialName[]).map((material) => `${material}: ${report.materialsBefore[material].lbs} lbs -> ${report.materialsAfter[material].lbs} lbs`)} />
       <MiniList title="Inventory" rows={[...report.itemsProduced.map((item) => `Produced ${item.quantity} ${item.itemName}`), ...report.itemsSold.map((item) => `Sold ${item.quantity} ${item.itemName} (${item.gp} gp)`), ...report.targetStockDeficitsRemaining.map((item) => `${item.itemName} deficit ${item.deficit}`)]} />
@@ -1291,10 +1409,14 @@ function monthlyReportMarkdown(simulation: MonthlyResolutionSimulation) {
     "",
     `Net profit: ${report.totalNetProfit.toLocaleString()} gp`,
     `Commission/project value: ${report.grossCommissionProjectValue.toLocaleString()} gp`,
-    `Recognized commission profit: ${report.controlledRecognizedCommissionProfit.toLocaleString()} gp`,
-    `Shop profit: ${report.genericShopProfit.toLocaleString()} gp`,
+    `True commission profit before Perfectionism: ${report.controlledRecognizedCommissionProfit.toLocaleString()} gp`,
+    `True shop value: ${report.trueShopValue.toLocaleString()} gp`,
     `Repair/misc profit: ${report.repairMiscProfit.toLocaleString()} gp`,
     `Generic shop costs: ${report.genericShopCosts.toLocaleString()} gp`,
+    `Taark's Perfectionism: ${report.perfectionismWaste.toLocaleString()} gp`,
+    "",
+    "## Profit Explanation",
+    ...report.ledgerSummaryLines.map((line) => `- ${line}`),
     "",
     "## Hours",
     `Available: ${report.totalAvailableHours}h`,
@@ -1315,19 +1437,22 @@ function monthlyReportMarkdown(simulation: MonthlyResolutionSimulation) {
 }
 
 function WorkQueue({
+  state,
   projects,
   onUpdateProject,
 }: {
+  state: CampaignState;
   projects: ForgeProject[];
-  onUpdateProject: (id: string, update: Partial<Pick<ForgeProject, "client" | "trueContractValue" | "requiredHours" | "hoursInvested" | "craftDc" | "priority" | "notes">>) => void;
+  onUpdateProject: (id: string, update: Partial<Pick<ForgeProject, "client" | "trueContractValue" | "requiredHours" | "hoursInvested" | "craftDc" | "priority" | "notes" | "item" | "take10" | "resolutionMode" | "hoursOverride" | "craftDcOverride" | "marketPriceOverrideGp" | "rawMaterialCostOverrideGp">>) => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   return (
     <section id="orders" className="ornate-panel work-queue">
-      <PanelTitle icon={ScrollText} title={`Current Work Queue (${projects.length}/3)`} />
+      <PanelTitle icon={ScrollText} title={`Current Work Queue (${projects.length} active)`} />
       {projects.map((project, index) => {
-        const requirements = getProjectRequirements(project);
+        const requirements = getProjectRequirements(project, state);
+        const stats = deriveCraftingStats(project.item, state.profile);
         const progress = Math.min(100, Math.round((project.hoursInvested / requirements.hours) * 100));
         const remaining = Math.max(0, requirements.hours - project.hoursInvested);
         const editing = editingId === project.id;
@@ -1344,6 +1469,7 @@ function WorkQueue({
                 <i style={{ width: `${progress}%` }} />
               </div>
               <small>Progress: {progress}% | DC {requirements.dc} | {remaining}h remaining</small>
+              <small>{qualityGoalLabel(stats.qualityGoal)} | {project.take10 ? "Take 10" : "Roll"} | {stats.marketPriceGp.toLocaleString()} gp market | {stats.rawMaterialCostGp.toLocaleString()} gp raw</small>
               {editing && (
                 <div className="queue-editor" onClick={(event) => event.stopPropagation()}>
                   <label>
@@ -1355,8 +1481,44 @@ function WorkQueue({
                     <input type="number" min="0" value={project.trueContractValue} onChange={(event) => onUpdateProject(project.id, { trueContractValue: Number(event.target.value) })} />
                   </label>
                   <label>
+                    Skill
+                    <select value={project.item.category} onChange={(event) => {
+                      const category = event.target.value as SkillKey;
+                      const item = { ...project.item, category };
+                      const itemType = defaultItemTypeForItem(item);
+                      onUpdateProject(project.id, { item: { ...item, itemType, qualityGoal: defaultQualityGoalForItem({ ...item, itemType }) } });
+                    }}>
+                      {skillOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    Complexity
+                    <select value={project.item.complexity} onChange={(event) => onUpdateProject(project.id, { item: { ...project.item, complexity: event.target.value as Complexity } })}>
+                      {complexityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    Item Type
+                    <select value={project.item.itemType ?? defaultItemTypeForItem(project.item)} onChange={(event) => onUpdateProject(project.id, { item: { ...project.item, itemType: event.target.value as CraftItemType } })}>
+                      {itemTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    Quality
+                    <select value={project.item.qualityGoal ?? defaultQualityGoalForItem(project.item)} onChange={(event) => onUpdateProject(project.id, { item: { ...project.item, qualityGoal: event.target.value as CraftQualityGoal, masterwork: event.target.value !== "standard" } })}>
+                      {qualityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    Take 10
+                    <select value={project.take10 ? "yes" : "no"} onChange={(event) => onUpdateProject(project.id, { take10: event.target.value === "yes" })}>
+                      <option value="no">Roll</option>
+                      <option value="yes">Take 10</option>
+                    </select>
+                  </label>
+                  <label>
                     Hours
-                    <input type="number" min="1" value={project.requiredHours} onChange={(event) => onUpdateProject(project.id, { requiredHours: Math.max(1, Number(event.target.value)) })} />
+                    <input type="number" min="1" value={project.requiredHours} onChange={(event) => onUpdateProject(project.id, { resolutionMode: "fixedHours", requiredHours: Math.max(1, Number(event.target.value)), hoursOverride: Math.max(1, Number(event.target.value)) })} />
                   </label>
                   <label>
                     Progress
@@ -1364,7 +1526,7 @@ function WorkQueue({
                   </label>
                   <label>
                     DC
-                    <input type="number" min="1" value={project.craftDc} onChange={(event) => onUpdateProject(project.id, { craftDc: Math.max(1, Number(event.target.value)) })} />
+                    <input type="number" min="1" value={project.craftDc} onChange={(event) => onUpdateProject(project.id, { resolutionMode: "fixedHours", craftDc: Math.max(1, Number(event.target.value)), craftDcOverride: Math.max(1, Number(event.target.value)) })} />
                   </label>
                   <label>
                     Priority
@@ -1394,20 +1556,52 @@ function WorkQueue({
 }
 
 function ResourcesPanel({
+  state,
   newCommission,
   setNewCommission,
   onAddCommission,
   onExportJson,
   onImportJson,
   onReset,
+  onUpdateProfile,
   importError,
 }: {
-  newCommission: { client: string; item: string; rewardGp: number; hours: number; craftDc: number };
-  setNewCommission: (value: { client: string; item: string; rewardGp: number; hours: number; craftDc: number }) => void;
+  state: CampaignState;
+  newCommission: {
+    client: string;
+    item: string;
+    rewardGp: number;
+    category: SkillKey;
+    complexity: Complexity;
+    itemType: CraftItemType;
+    qualityGoal: CraftQualityGoal;
+    primaryMaterial: MaterialName;
+    materialLbs: number;
+    specialMaterial: "" | MaterialName;
+    hoursOverride: number;
+    craftDcOverride: number;
+    take10: boolean;
+  };
+  setNewCommission: (value: {
+    client: string;
+    item: string;
+    rewardGp: number;
+    category: SkillKey;
+    complexity: Complexity;
+    itemType: CraftItemType;
+    qualityGoal: CraftQualityGoal;
+    primaryMaterial: MaterialName;
+    materialLbs: number;
+    specialMaterial: "" | MaterialName;
+    hoursOverride: number;
+    craftDcOverride: number;
+    take10: boolean;
+  }) => void;
   onAddCommission: () => void;
   onExportJson: () => void;
   onImportJson: (event: ChangeEvent<HTMLInputElement>) => void;
   onReset: () => void;
+  onUpdateProfile: (update: Partial<CampaignState["profile"]>) => void;
   importError: string;
 }) {
   const [confirmReset, setConfirmReset] = useState(false);
@@ -1442,7 +1636,33 @@ function ResourcesPanel({
         </div>
         <p className="save-note">Shared saves live in Redis online. Save JSON downloads a local backup file.</p>
         {importError && <p className="error-text">{importError}</p>}
+        <div className="rules-tuning">
+          <strong>Official Craft Rules</strong>
+          <NumberField
+            label="Perfectionism %"
+            value={state.profile.perfectionismWastePct}
+            onChange={(value) => onUpdateProfile({ perfectionismWastePct: Math.max(0, value) })}
+          />
+          <div className="rank-grid">
+            {skillOptions.map((skill) => (
+              <NumberField
+                key={skill.value}
+                label={`${skill.label} ranks`}
+                value={state.profile.craftRanks[skill.value]}
+                onChange={(value) =>
+                  onUpdateProfile({
+                    craftRanks: {
+                      ...state.profile.craftRanks,
+                      [skill.value]: Math.max(0, value),
+                    },
+                  })
+                }
+              />
+            ))}
+          </div>
+        </div>
         <AddCommissionForm
+          state={state}
           newCommission={newCommission}
           setNewCommission={setNewCommission}
           onAddCommission={onAddCommission}
@@ -1462,12 +1682,13 @@ function MaterialsInventoryPanel({
   return (
     <section className="left-materials">
       <PanelTitle icon={Gem} title="Materials Inventory" />
+      <small className="save-note">Guild auto-supplies shortages; this tracks on-hand stock and price basis.</small>
       <div className="mini-list">
         {(Object.entries(state.materials) as Array<[MaterialName, { lbs: number; gpPerLb: number }]>).map(([material, amount]) => (
           <label key={material} className="editable-row">
             <span>{material}</span>
             <input type="number" min="0" value={amount.lbs} onChange={(event) => onUpdateMaterial(material, Number(event.target.value))} />
-            <em>lbs</em>
+            <em>{amount.gpPerLb} gp/lb</em>
           </label>
         ))}
       </div>
@@ -1544,7 +1765,7 @@ function InventoryRow({
 }) {
   const Icon = stock.item.category === "weaponsmithing" ? Swords : stock.item.category === "armorsmithing" ? Shield : Hammer;
   const deficit = Math.max(0, stock.target - stock.quantity);
-  const qualityGoal = stock.item.category === "armorsmithing" ? "Dwarvencraft" : "Masterwork";
+  const qualityGoal = qualityGoalLabel(stock.item.qualityGoal ?? defaultQualityGoalForItem(stock.item));
 
   return (
     <article className={`inventory-row ${deficit > 0 ? "needs-stock" : ""}`}>
@@ -1592,7 +1813,7 @@ function InfoPopup({
   const latestLedger = state.ledger[0];
   const rows: string[] =
     panel === "orders"
-      ? projects.map((project) => `${project.name}: ${project.hoursInvested}/${getProjectRequirements(project).hours}h`)
+      ? projects.map((project) => `${project.name}: ${project.hoursInvested}/${getProjectRequirements(project, state).hours}h`)
       : panel === "inventory"
         ? state.inventory.slice(0, 8).map((stock) => `${stock.item.name}: ${stock.quantity}/${stock.target}`)
         : panel === "resources"
@@ -1625,6 +1846,43 @@ function InfoPopup({
         ))}
       </div>
     </aside>
+  );
+}
+
+function RulesSettingsOverlay({
+  state,
+  onUpdateProfile,
+  onClose,
+}: {
+  state: CampaignState;
+  onUpdateProfile: (update: Partial<CampaignState["profile"]>) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="resolution-overlay">
+      <section className="resolution-modal ornate-panel rules-modal">
+        <div className="modal-title">
+          <PanelTitle icon={Settings} title="Rules and Economy" />
+          <button className="icon-close" type="button" onClick={onClose} title="Close">
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="rules-settings-grid">
+          <NumberField label="Target Profit gp" value={state.profile.dmTargetProfitGp} onChange={(value) => onUpdateProfile({ dmTargetProfitGp: Math.max(0, value) })} />
+          <NumberField label="Sigma gp" value={state.profile.dmTargetVolatilityGp} onChange={(value) => onUpdateProfile({ dmTargetVolatilityGp: Math.max(0, value) })} />
+          <NumberField label="Perfectionism %" value={state.profile.perfectionismWastePct} onChange={(value) => onUpdateProfile({ perfectionismWastePct: Math.max(0, value) })} />
+        </div>
+        <div className="rules-scroll">
+          <h3>Rule Set Overview</h3>
+          <p>Brightaxe uses fixed complexity time in hours: very simple 8h, simple 16h, moderate 32h, complex 56h, and very complex 112h. All monthly allocation sliders spend hours, so crafting time is translated directly into the same unit the campaign dashboard uses.</p>
+          <p>Quality goals are explicit. Taark defaults to Dwarvencraft for armor and shields, Masterwork for weapons, and Standard for blacksmithing, finesmithing, and locksmithing shelf goods. Project rows can override the quality goal when the DM needs an exception.</p>
+          <p>Masterwork adds +4 DC and +50% time. Dwarvencraft implies Masterwork, then adds +2 DC, +25% time, and the Dwarvencraft surcharge. Special materials add their DC and time modifiers. Craft ranks can halve time up to three times, and check margin can resolve final completion when a funded commission rolls.</p>
+          <p>Materials are guild-backed. Taark tracks on-hand pounds and true costs, but shortages do not block crafting. Missing materials are assumed to be supplied through guild channels and charged through the month.</p>
+          <p>The ledger now starts from true value: completed commission value, shop sales, and repairs. Taark&apos;s Perfectionism is then shown as an explicit extra material/work cost for rejected, overbuilt, re-smelted, refit, or over-polished goods. Strong rolls and commission-heavy months can exceed the DM target; the target and sigma are guidance, not a hard cap.</p>
+          <p>Monthly Event Mod is a percentage modifier to the whole month&apos;s available forge hours. Jordy&apos;s training slider is capped at 240 hours, roughly 8 hours per day across a 30-day month.</p>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1662,21 +1920,102 @@ function SyncStatusBanner({
 }
 
 function AddCommissionForm({
+  state,
   newCommission,
   setNewCommission,
   onAddCommission,
 }: {
-  newCommission: { client: string; item: string; rewardGp: number; hours: number; craftDc: number };
-  setNewCommission: (value: { client: string; item: string; rewardGp: number; hours: number; craftDc: number }) => void;
+  state: CampaignState;
+  newCommission: {
+    client: string;
+    item: string;
+    rewardGp: number;
+    category: SkillKey;
+    complexity: Complexity;
+    itemType: CraftItemType;
+    qualityGoal: CraftQualityGoal;
+    primaryMaterial: MaterialName;
+    materialLbs: number;
+    specialMaterial: "" | MaterialName;
+    hoursOverride: number;
+    craftDcOverride: number;
+    take10: boolean;
+  };
+  setNewCommission: (value: typeof newCommission) => void;
   onAddCommission: () => void;
 }) {
+  const previewItem: ForgeItem = {
+    name: newCommission.item || "New commission",
+    category: newCommission.category,
+    itemType: newCommission.itemType,
+    complexity: newCommission.complexity,
+    basePriceGp: newCommission.rewardGp,
+    masterwork: newCommission.qualityGoal !== "standard",
+    qualityGoal: newCommission.qualityGoal,
+    specialMaterial: newCommission.specialMaterial || undefined,
+    materialRecipe: { [newCommission.primaryMaterial]: Math.max(0, newCommission.materialLbs) },
+  };
+  const preview = deriveCraftingStats(previewItem, state.profile);
+
+  function setCategory(category: SkillKey) {
+    const item = { name: newCommission.item || "New commission", category };
+    const itemType = defaultItemTypeForItem(item);
+    setNewCommission({ ...newCommission, category, itemType, qualityGoal: defaultQualityGoalForItem({ ...item, itemType, masterwork: category !== "blacksmithing" }) });
+  }
+
   return (
     <div className="add-form">
       <input placeholder="Client" value={newCommission.client} onChange={(event) => setNewCommission({ ...newCommission, client: event.target.value })} />
       <input placeholder="Item" value={newCommission.item} onChange={(event) => setNewCommission({ ...newCommission, item: event.target.value })} />
       <NumberField label="Reward gp" value={newCommission.rewardGp} onChange={(value) => setNewCommission({ ...newCommission, rewardGp: value })} />
-      <NumberField label="Hours" value={newCommission.hours} onChange={(value) => setNewCommission({ ...newCommission, hours: value })} />
-      <NumberField label="Craft DC" value={newCommission.craftDc} onChange={(value) => setNewCommission({ ...newCommission, craftDc: value })} />
+      <label>
+        Skill
+        <select value={newCommission.category} onChange={(event) => setCategory(event.target.value as SkillKey)}>
+          {skillOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <label>
+        Complexity
+        <select value={newCommission.complexity} onChange={(event) => setNewCommission({ ...newCommission, complexity: event.target.value as Complexity })}>
+          {complexityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <label>
+        Type
+        <select value={newCommission.itemType} onChange={(event) => setNewCommission({ ...newCommission, itemType: event.target.value as CraftItemType })}>
+          {itemTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <label>
+        Quality
+        <select value={newCommission.qualityGoal} onChange={(event) => setNewCommission({ ...newCommission, qualityGoal: event.target.value as CraftQualityGoal })}>
+          {qualityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <label>
+        Material
+        <select value={newCommission.primaryMaterial} onChange={(event) => setNewCommission({ ...newCommission, primaryMaterial: event.target.value as MaterialName })}>
+          {["Iron", "Steel", "Cold Iron", "Alchemical Silver", "Mithril", "Adamantine", "Silver", "Gold", "Platinum", "Brass", "Bronze"].map((material) => <option key={material} value={material}>{material}</option>)}
+        </select>
+      </label>
+      <NumberField label="Material lbs" value={newCommission.materialLbs} onChange={(value) => setNewCommission({ ...newCommission, materialLbs: value })} />
+      <label>
+        Special
+        <select value={newCommission.specialMaterial} onChange={(event) => setNewCommission({ ...newCommission, specialMaterial: event.target.value as "" | MaterialName })}>
+          <option value="">None</option>
+          {["Cold Iron", "Alchemical Silver", "Mithril", "Adamantine", "Silver"].map((material) => <option key={material} value={material}>{material}</option>)}
+        </select>
+      </label>
+      <NumberField label="Hours Override" value={newCommission.hoursOverride} onChange={(value) => setNewCommission({ ...newCommission, hoursOverride: value })} />
+      <NumberField label="DC Override" value={newCommission.craftDcOverride} onChange={(value) => setNewCommission({ ...newCommission, craftDcOverride: value })} />
+      <label>
+        Check
+        <select value={newCommission.take10 ? "take10" : "roll"} onChange={(event) => setNewCommission({ ...newCommission, take10: event.target.value === "take10" })}>
+          <option value="roll">Roll</option>
+          <option value="take10">Take 10</option>
+        </select>
+      </label>
+      <small className="derived-preview">Rules: {preview.hours}h, DC {preview.dc}, {preview.marketPriceGp.toLocaleString()} gp market, {preview.rawMaterialCostGp.toLocaleString()} gp raw</small>
       <button className="brass-button" onClick={onAddCommission}>
         <Plus className="size-4" />
         Add Commission

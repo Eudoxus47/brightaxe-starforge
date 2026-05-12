@@ -759,8 +759,16 @@ select:focus {
   padding-right: 6px;
 }
 
-.modal-title .panel-title {
+.modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 10px;
+}
+
+.modal-title .panel-title {
+  margin-bottom: 0;
 }
 
 .summary-strip,
@@ -1165,6 +1173,17 @@ select:focus {
   text-transform: uppercase;
 }
 
+.icon-button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(215, 164, 95, 0.5);
+  background: rgba(0, 0, 0, 0.26);
+  color: #f5dfb3;
+}
+
 .resolve-button {
   min-height: 42px;
   background: linear-gradient(180deg, #6c351f, #221009);
@@ -1186,6 +1205,40 @@ select:focus {
 .danger-button {
   border-color: rgba(198, 74, 43, 0.58);
   color: #f6a07a;
+}
+
+.rules-modal {
+  max-height: min(760px, 88vh);
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.rules-settings-grid,
+.rank-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rules-scroll {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid rgba(183, 123, 63, 0.24);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 12px;
+}
+
+.rules-scroll h3 {
+  color: #ffe3a6;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 18px;
+}
+
+.rules-scroll p {
+  color: #d8c7a6;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .icon-only {
@@ -1563,9 +1616,23 @@ select:focus {
   gap: 6px;
 }
 
-.add-form input {
+.add-form label {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.add-form input,
+.add-form select {
+  width: 100%;
+  margin-top: 2px;
   padding: 7px 8px;
   font-size: 12px;
+}
+
+.add-form .derived-preview {
+  grid-column: 1 / -1;
+  color: var(--teal);
+  font-size: 10px;
 }
 
 .add-form .brass-button {

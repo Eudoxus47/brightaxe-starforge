@@ -33,15 +33,21 @@ describe("crafting rules", () => {
     const stats = deriveCraftingStats({
       name: "Adamantine Breastplate",
       category: "armorsmithing",
+      itemType: "armor",
       complexity: "complex",
       basePriceGp: 6200,
       masterwork: true,
+      qualityGoal: "masterwork",
       specialMaterial: "Adamantine",
       materialRecipe: { Adamantine: 35 },
     });
 
-    expect(stats.hours).toBe(112);
+    expect(stats.hours).toBe(126);
     expect(stats.dc).toBe(28);
+
+    const dwarvencraft = deriveCraftingStats({ ...initialCampaignState.projects[1].item, qualityGoal: "dwarvencraft" });
+    expect(dwarvencraft.hours).toBe(158);
+    expect(dwarvencraft.dc).toBe(30);
   });
 
   it("allows fixed-hour projects to override derived time", () => {
@@ -142,7 +148,8 @@ describe("monthly resolution", () => {
     const { result } = resolveMonth(ready);
 
     expect(result.materialSavings).toBe(10);
-    expect(result.genericShopCosts).toBe(90);
+    expect(result.genericShopCosts).toBe(360);
+    expect(result.perfectionismWaste).toBeGreaterThan(225);
   });
 });
 
@@ -188,25 +195,25 @@ describe("staged monthly resolution", () => {
     expect(byId["basenhack-full-plate"].allocatedHours).toBe(166);
     expect(byId["basenhack-full-plate"].nominalHours).toBe(166);
     expect(byId["basenhack-full-plate"].fundingStatus).toBe("funded");
-    expect(byId["fairstream-breastplate"].allocatedHours).toBe(54);
-    expect(byId["fairstream-breastplate"].fundingStatus).toBe("partial");
-    expect(byId["purple-worm-tooth"].allocatedHours).toBe(0);
-    expect(byId["iron-doors-mermaid"].allocatedHours).toBe(0);
+    expect(byId["fairstream-breastplate"].allocatedHours).toBe(8);
+    expect(byId["fairstream-breastplate"].fundingStatus).toBe("funded");
+    expect(byId["purple-worm-tooth"].allocatedHours).toBe(42);
+    expect(byId["iron-doors-mermaid"].allocatedHours).toBe(4);
     expect(plans.filter((plan) => plan.selected).every((plan) => plan.allocatedHours > 0)).toBe(true);
   });
 
-  it("uses surplus commission slider hours as completion risk coverage", () => {
+  it("flags surplus commission slider hours only after every commission is fully funded", () => {
     const plans = allocateCommissionProjectHours(initialCampaignState, 660);
     const byId = Object.fromEntries(plans.map((plan) => [plan.projectId, plan]));
     const purple = initialCampaignState.projects.find((project) => project.id === "purple-worm-tooth");
     const ironDoors = initialCampaignState.projects.find((project) => project.id === "iron-doors-mermaid");
 
-    expect(byId["purple-worm-tooth"].allocatedHours).toBeGreaterThan(purple?.requiredHours ?? 0);
-    expect(byId["purple-worm-tooth"].fundingStatus).toBe("buffered");
-    expect(byId["purple-worm-tooth"].protectedHours).toBe(252);
+    expect(byId["purple-worm-tooth"].allocatedHours).toBe(purple?.requiredHours ?? 0);
+    expect(byId["purple-worm-tooth"].fundingStatus).toBe("funded");
+    expect(byId["purple-worm-tooth"].protectedHours).toBe(purple?.requiredHours ?? 0);
     expect(byId["iron-doors-mermaid"].allocatedHours).toBe(ironDoors?.requiredHours);
     expect(byId["iron-doors-mermaid"].bufferHours).toBe(0);
-    expect(plans.reduce((total, plan) => total + plan.allocatedHours, 0)).toBe(574);
+    expect(plans.reduce((total, plan) => total + plan.allocatedHours, 0)).toBe(244);
   });
 
   it("funds every commission nominally before allocating risk buffers", () => {
@@ -225,7 +232,7 @@ describe("staged monthly resolution", () => {
     const lockset = initialCampaignState.inventory.find((stock) => stock.id === "reinforced-lockset-mw");
     const fittings = initialCampaignState.inventory.find((stock) => stock.id === "armor-fittings-mw");
     const dwarvencraftDisplayOnly = deriveCraftingStats(steelBreastplate!.item);
-    const masterworkBaseline = deriveCraftingStats({ ...steelBreastplate!.item });
+    const masterworkBaseline = deriveCraftingStats({ ...steelBreastplate!.item, qualityGoal: "masterwork" });
 
     expect(steelBreastplate && inventoryItemDisplayName(steelBreastplate.item)).toBe("Steel Breastplate (MW)");
     expect(mithrilBreastplate && inventoryItemDisplayName(mithrilBreastplate.item)).toBe("Mithril Breastplate");
@@ -235,7 +242,8 @@ describe("staged monthly resolution", () => {
     expect(battleaxe?.target).toBe(2);
     expect(lockset?.item.category).toBe("locksmithing");
     expect(fittings?.item.category).toBe("finesmithing");
-    expect(dwarvencraftDisplayOnly).toEqual(masterworkBaseline);
+    expect(dwarvencraftDisplayOnly.dc).toBe(masterworkBaseline.dc + 2);
+    expect(dwarvencraftDisplayOnly.hours).toBeGreaterThan(masterworkBaseline.hours);
   });
 
   it("seeds and normalizes standard smithing metals", () => {
@@ -303,7 +311,7 @@ describe("staged monthly resolution", () => {
       target: "commission",
       hoursDelta: 0,
       moneyDelta: 600,
-      volatilityDelta: 300,
+      volatilityDelta: 150,
     });
     expect(valthen.effects.target).toBe("commission");
     expect(valthen.effects.hoursDelta).toBeGreaterThan(0);
@@ -325,7 +333,7 @@ describe("staged monthly resolution", () => {
     expect(ironDoors?.item.category).toBe("blacksmithing");
     expect(ironDoors?.client).toBe("The Mermaid");
     expect(ironDoors?.craftDc).toBe(18);
-    expect(ironDoors?.requiredHours).toBe(56);
+    expect(ironDoors?.requiredHours).toBe(28);
   });
 
   it("forecasts deterministically without mutating campaign state", () => {

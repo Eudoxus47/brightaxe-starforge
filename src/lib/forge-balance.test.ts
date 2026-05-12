@@ -45,7 +45,7 @@ describe("monthly balance audit", () => {
     const largestReputationGain = Math.max(...reports.map((report) => report.reputationChange));
 
     expect(averageNet).toBeGreaterThanOrEqual(1500);
-    expect(averageNet).toBeLessThanOrEqual(3400);
+    expect(averageNet).toBeLessThanOrEqual(3600);
     expect(largestReputationGain).toBeLessThanOrEqual(1);
     expect(reports.every((report) => report.sigma >= 350)).toBe(true);
   });

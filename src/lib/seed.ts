@@ -9,9 +9,11 @@ const armor = (
 ): ForgeItem => ({
   name,
   category: "armorsmithing",
+  itemType: name.toLowerCase().includes("shield") || name.toLowerCase().includes("buckler") ? "shield" : "armor",
   complexity: "complex",
   basePriceGp,
   masterwork: true,
+  qualityGoal: "dwarvencraft",
   materialRecipe,
   ...options,
 });
@@ -24,9 +26,11 @@ const weapon = (
 ): ForgeItem => ({
   name,
   category: "weaponsmithing",
+  itemType: "weapon",
   complexity: "moderate",
   basePriceGp,
   masterwork: true,
+  qualityGoal: "masterwork",
   materialRecipe,
   ...options,
 });
@@ -39,9 +43,11 @@ const blacksmithing = (
 ): ForgeItem => ({
   name,
   category: "blacksmithing",
+  itemType: "other_metal",
   complexity: "complex",
   basePriceGp,
   masterwork: false,
+  qualityGoal: "standard",
   materialRecipe,
   ...options,
 });
@@ -54,9 +60,11 @@ const finesmithing = (
 ): ForgeItem => ({
   name,
   category: "finesmithing",
+  itemType: "tool",
   complexity: "simple",
   basePriceGp,
-  masterwork: true,
+  masterwork: false,
+  qualityGoal: "standard",
   materialRecipe,
   ...options,
 });
@@ -69,9 +77,11 @@ const locksmithing = (
 ): ForgeItem => ({
   name,
   category: "locksmithing",
+  itemType: "tool",
   complexity: "moderate",
   basePriceGp,
-  masterwork: true,
+  masterwork: false,
+  qualityGoal: "standard",
   materialRecipe,
   ...options,
 });
@@ -88,9 +98,9 @@ function project(
   input: Pick<ForgeProject, "id" | "client" | "item" | "priority" | "trueContractValue" | "prestige" | "notes" | "resolutionMode"> &
     Partial<Pick<ForgeProject, "hoursInvested" | "requiredHours" | "craftDc" | "kind" | "economicMode" | "materialSupplyMode" | "payoutMode">>,
 ): ForgeProject {
-  const stats = deriveCraftingStats(input.item);
+  const stats = deriveCraftingStats(input.item, profile);
   const materialSupplyMode = input.materialSupplyMode ?? "taark_supplies";
-  const materialCost = recipeCost(materials, input.item.materialRecipe);
+  const materialCost = input.item.basePriceGp > 0 ? stats.rawMaterialCostGp : recipeCost(materials, input.item.materialRecipe);
   return {
     id: input.id,
     name: input.item.name,
@@ -100,7 +110,7 @@ function project(
     materialSupplyMode,
     payoutMode: input.payoutMode ?? "true_contract_value",
     item: input.item,
-    itemType: input.item.name,
+    itemType: stats.itemType,
     status: "in_progress",
     priority: input.priority,
     trueContractValue: input.trueContractValue,
@@ -117,6 +127,7 @@ function project(
     materials: materialRowsFromRecipe(input.item.materialRecipe, materialSupplyMode === "client_supplies" ? "client" : "taark", materialSupplyMode === "client_reimburses"),
     notes: input.notes,
     resolutionMode: input.resolutionMode,
+    take10: false,
   };
 }
 
@@ -128,6 +139,39 @@ const inventoryItem = (id: string, item: ForgeItem, quantity: number, target: nu
 });
 
 const seed = "brightaxe-starforge";
+const profile: CampaignState["profile"] = {
+  name: "Taark Brightaxe",
+  title: "Master dwarven armorsmith beneath The Mermaid",
+  reputation: 14,
+  maxReputation: 20,
+  skills: {
+    armorsmithing: 31,
+    weaponsmithing: 8,
+    blacksmithing: 3,
+    finesmithing: -1,
+    locksmithing: 1,
+  },
+  craftRanks: {
+    armorsmithing: 18,
+    weaponsmithing: 10,
+    blacksmithing: 5,
+    finesmithing: 3,
+    locksmithing: 5,
+  },
+  forgeQuality: "Masterwork",
+  toolQuality: "Masterwork",
+  forgeBonus: 2,
+  toolBonus: 2,
+  baseMonthlyHours: 480,
+  ringOfSustenanceHours: 120,
+  genericShopCostsGp: 100,
+  shopProfitBaselineGp: 1700,
+  commissionAnchorGp: 1400,
+  commissionSpikeCapGp: 1000,
+  dmTargetProfitGp: 2000,
+  dmTargetVolatilityGp: 500,
+  perfectionismWastePct: 45,
+};
 const materials = materialStockToInventory({
   Iron: 240,
   Steel: 420,
@@ -206,31 +250,7 @@ export const initialCampaignState: CampaignState = {
   version: 2,
   currentMonth: 1,
   monthLabel: campaignCalendarLabel(1),
-  profile: {
-    name: "Taark Brightaxe",
-    title: "Master dwarven armorsmith beneath The Mermaid",
-    reputation: 14,
-    maxReputation: 20,
-    skills: {
-      armorsmithing: 31,
-      weaponsmithing: 8,
-      blacksmithing: 3,
-      finesmithing: -1,
-      locksmithing: 1,
-    },
-    forgeQuality: "Masterwork",
-    toolQuality: "Masterwork",
-    forgeBonus: 2,
-    toolBonus: 2,
-    baseMonthlyHours: 480,
-    ringOfSustenanceHours: 120,
-    genericShopCostsGp: 100,
-    shopProfitBaselineGp: 1700,
-    commissionAnchorGp: 1400,
-    commissionSpikeCapGp: 1000,
-    dmTargetProfitGp: 2000,
-    dmTargetVolatilityGp: 1000,
-  },
+  profile,
   materials,
   inventory: [
     inventoryItem("scale-mail-mw", armor("Scale Mail (MW)", 200, { Steel: 35 }), 2, 3),
@@ -249,6 +269,15 @@ export const initialCampaignState: CampaignState = {
     inventoryItem("buckler", armor("Buckler", 15, { Steel: 5 }, { complexity: "moderate", masterwork: false }), 4, 8),
     inventoryItem("full-plate-mw", armor("Full Plate (MW)", 1650, { Steel: 50 }), 0, 2),
     inventoryItem("half-plate-mw", armor("Half-Plate (MW)", 600, { Steel: 42 }), 0, 2),
+    inventoryItem("chainmail-dc", armor("Chainmail", 150, { Steel: 40 }), 0, 3),
+    inventoryItem("splint-mail-dc", armor("Splint Mail", 200, { Steel: 45 }), 0, 2),
+    inventoryItem("banded-mail-dc", armor("Banded Mail", 250, { Steel: 45 }), 0, 2),
+    inventoryItem("mithril-chainmail", armor("Mithril Chainmail", 5150, { Mithril: 28 }, { specialMaterial: "Mithril" }), 0, 1),
+    inventoryItem("mithril-full-plate", armor("Mithril Full Plate", 10500, { Mithril: 35 }, { specialMaterial: "Mithril" }), 0, 1),
+    inventoryItem("adamantine-chain-shirt", armor("Adamantine Chain Shirt", 5250, { Adamantine: 25, Steel: 6 }, { specialMaterial: "Adamantine" }), 0, 1),
+    inventoryItem("adamantine-full-plate", armor("Adamantine Full Plate", 16500, { Adamantine: 55, Steel: 14 }, { specialMaterial: "Adamantine" }), 0, 1),
+    inventoryItem("shield-spikes-dc", armor("Shield Spikes", 10, { Steel: 4 }, { complexity: "simple", itemType: "shield" }), 0, 4),
+    inventoryItem("spiked-heavy-shield", armor("Spiked Heavy Shield", 30, { Steel: 14 }, { complexity: "moderate", itemType: "shield" }), 0, 2),
     inventoryItem("battleaxe-mw", weapon("Battleaxe (MW)", 310, { Steel: 8 }), 1, 2),
     inventoryItem("warhammer-mw", weapon("Warhammer (MW)", 312, { Steel: 8 }), 1, 2),
     inventoryItem("longsword-mw", weapon("Longsword (MW)", 315, { Steel: 6 }), 1, 2),
@@ -257,14 +286,36 @@ export const initialCampaignState: CampaignState = {
     inventoryItem("short-sword-mw", weapon("Short Sword (MW)", 310, { Steel: 5 }), 0, 2),
     inventoryItem("mace-mw", weapon("Heavy Mace (MW)", 312, { Steel: 7 }), 0, 2),
     inventoryItem("spearheads-mw", weapon("Spearheads (MW)", 120, { Steel: 6 }, { complexity: "simple" }), 0, 4),
-    inventoryItem("simple-lock-mw", locksmithing("Simple Lock (MW)", 120, { Steel: 2, Brass: 1 }), 1, 4),
-    inventoryItem("good-lock-mw", locksmithing("Good Lock (MW)", 220, { Steel: 3, Brass: 1 }), 0, 3),
-    inventoryItem("reinforced-lockset-mw", locksmithing("Reinforced Lockset (MW)", 360, { Steel: 6, Brass: 2 }), 0, 2),
-    inventoryItem("hinges-mw", blacksmithing("Reinforced Hinges (MW)", 90, { Steel: 8 }, { complexity: "simple", masterwork: true }), 1, 4),
-    inventoryItem("buckles-clasps-mw", finesmithing("Buckles and Clasps (MW)", 80, { Brass: 2, Steel: 1 }), 1, 5),
-    inventoryItem("armor-fittings-mw", finesmithing("Armor Fittings (MW)", 140, { Brass: 3, Steel: 2 }), 1, 4),
-    inventoryItem("lantern-frames-mw", finesmithing("Lantern Frames (MW)", 120, { Brass: 4, Copper: 1 }), 0, 3),
-    inventoryItem("jewelry-fittings-mw", finesmithing("Jewelry Fittings (MW)", 180, { Silver: 1, Gold: 0.25 }), 0, 2),
+    inventoryItem("greataxe-mw", weapon("Greataxe (MW)", 320, { Steel: 12 }), 0, 1),
+    inventoryItem("dwarven-waraxe-mw", weapon("Dwarven Waraxe (MW)", 330, { Steel: 10 }), 0, 2),
+    inventoryItem("greatsword-mw", weapon("Greatsword (MW)", 350, { Steel: 12 }), 0, 1),
+    inventoryItem("morningstar-mw", weapon("Morningstar (MW)", 308, { Steel: 7 }), 0, 2),
+    inventoryItem("scimitar-mw", weapon("Scimitar (MW)", 315, { Steel: 6 }), 0, 1),
+    inventoryItem("rapier-mw", weapon("Rapier (MW)", 320, { Steel: 5 }), 0, 1),
+    inventoryItem("arrowheads-mw", weapon("Arrowheads Batch (MW)", 60, { Steel: 3 }, { complexity: "simple" }), 0, 6),
+    inventoryItem("lance-heads-mw", weapon("Lance Heads (MW)", 115, { Steel: 8 }, { complexity: "simple" }), 0, 2),
+    inventoryItem("crossbow-parts-mw", weapon("Crossbow Metalwork (MW)", 335, { Steel: 8, Brass: 1 }), 0, 2),
+    inventoryItem("simple-lock-mw", locksmithing("Simple Lock", 120, { Steel: 2, Brass: 1 }), 1, 4),
+    inventoryItem("good-lock-mw", locksmithing("Good Lock", 220, { Steel: 3, Brass: 1 }), 0, 3),
+    inventoryItem("reinforced-lockset-mw", locksmithing("Reinforced Lockset", 360, { Steel: 6, Brass: 2 }), 0, 2),
+    inventoryItem("average-lock", locksmithing("Average Lock", 80, { Steel: 2, Brass: 1 }), 0, 4),
+    inventoryItem("superior-lock", locksmithing("Superior Lock", 150, { Steel: 4, Brass: 2 }), 0, 1),
+    inventoryItem("padlocks", locksmithing("Padlocks", 60, { Steel: 2, Brass: 1 }, { complexity: "simple" }), 0, 6),
+    inventoryItem("key-blanks", locksmithing("Key Blanks", 25, { Brass: 1 }, { complexity: "very-simple" }), 0, 12),
+    inventoryItem("manacles", locksmithing("Manacles", 15, { Steel: 5 }), 0, 3),
+    inventoryItem("strongbox-hardware", locksmithing("Strongbox Hardware", 95, { Steel: 5, Brass: 1 }), 0, 2),
+    inventoryItem("hinges-mw", blacksmithing("Reinforced Hinges", 90, { Steel: 8 }, { complexity: "simple" }), 1, 4),
+    inventoryItem("buckles-clasps-mw", finesmithing("Buckles and Clasps", 80, { Brass: 2, Steel: 1 }), 1, 5),
+    inventoryItem("armor-fittings-mw", finesmithing("Armor Fittings", 140, { Brass: 3, Steel: 2 }), 1, 4),
+    inventoryItem("lantern-frames-mw", finesmithing("Lantern Frames", 120, { Brass: 4, Copper: 1 }), 0, 3),
+    inventoryItem("jewelry-fittings-mw", finesmithing("Jewelry Fittings", 180, { Silver: 1, Gold: 0.25 }), 0, 2),
+    inventoryItem("nails-rivets", blacksmithing("Nails and Rivets", 20, { Steel: 4 }, { complexity: "very-simple" }), 0, 10),
+    inventoryItem("horseshoes", blacksmithing("Horseshoes", 35, { Steel: 6 }, { complexity: "simple" }), 0, 8),
+    inventoryItem("chain-lengths", blacksmithing("Chain Lengths", 50, { Steel: 10 }), 0, 4),
+    inventoryItem("iron-bands", blacksmithing("Iron Bands", 30, { Iron: 12 }, { complexity: "simple" }), 0, 6),
+    inventoryItem("cauldron-hooks", blacksmithing("Cauldron Hooks", 24, { Iron: 8 }, { complexity: "simple" }), 0, 3),
+    inventoryItem("grates", blacksmithing("Hearth Grates", 75, { Iron: 25 }), 0, 2),
+    inventoryItem("door-hardware", blacksmithing("Door Hardware", 65, { Iron: 14, Steel: 4 }), 0, 4),
   ],
   projects,
   events: generateMonthlyEvents(1, seed),
@@ -287,5 +338,6 @@ export const initialCampaignState: CampaignState = {
     craftingDefault: "craftingPdf",
     randomSeed: seed,
     materialBalancingMode: "profit_coupled",
+    materialSupplyPolicy: "guild_auto_supplies",
   },
 };

@@ -1,13 +1,16 @@
 import type {
   CampaignState,
   Complexity,
+  CraftItemType,
   CraftQuality,
+  CraftQualityGoal,
   EventActor,
   EventModifier,
   EventSource,
   ForecastResult,
   ForecastBreakdown,
   ForgeItem,
+  ForgeProfile,
   ForgeProject,
   InventoryItem,
   LaborAllocation,
@@ -289,22 +292,138 @@ export function rollDie(seed: string, sides = 20): number {
   return Math.floor(makeRng(seed)() * sides) + 1;
 }
 
-export function deriveCraftingStats(item: ForgeItem): { hours: number; dc: number } {
-  const materialMultiplier = item.specialMaterial ? 0.5 : 0;
-  const masterworkMultiplier = item.masterwork ? 0.5 : 0;
-  const hours = Math.round(complexityHours[item.complexity] * (1 + materialMultiplier + masterworkMultiplier));
+export function defaultItemTypeForItem(item: Pick<ForgeItem, "category" | "name">): CraftItemType {
+  const name = item.name.toLowerCase();
+  if (item.category === "weaponsmithing") return "weapon";
+  if (item.category === "armorsmithing") {
+    return name.includes("shield") || name.includes("buckler") ? "shield" : "armor";
+  }
+  if (item.category === "locksmithing" || item.category === "finesmithing") return "tool";
+  return "other_metal";
+}
+
+export function defaultQualityGoalForItem(item: Pick<ForgeItem, "category" | "itemType" | "masterwork"> & Partial<Pick<ForgeItem, "qualityGoal">>): CraftQualityGoal {
+  if (item.qualityGoal) return item.qualityGoal;
+  if (item.category === "armorsmithing") return "dwarvencraft";
+  if (item.category === "weaponsmithing") return "masterwork";
+  return item.masterwork ? "masterwork" : "standard";
+}
+
+export function qualityGoalLabel(goal: CraftQualityGoal): string {
+  if (goal === "dwarvencraft") return "Dwarvencraft";
+  if (goal === "masterwork") return "Masterwork";
+  return "Standard";
+}
+
+function isArmorOrShield(itemType: CraftItemType) {
+  return itemType === "armor" || itemType === "shield";
+}
+
+function qualitySurchargeGp(itemType: CraftItemType, qualityGoal: CraftQualityGoal) {
+  const masterwork =
+    qualityGoal === "standard"
+      ? 0
+      : itemType === "weapon"
+        ? 300
+        : isArmorOrShield(itemType)
+          ? 150
+          : itemType === "tool"
+            ? 50
+            : 0;
+  const dwarvencraft =
+    qualityGoal === "dwarvencraft"
+      ? itemType === "weapon"
+        ? 600
+        : isArmorOrShield(itemType)
+          ? 300
+          : 100
+      : 0;
+  return masterwork + dwarvencraft;
+}
+
+function specialMaterialSurchargeGp(item: ForgeItem, itemType: CraftItemType) {
+  if (item.specialMaterialSurchargeGp !== undefined) return Math.max(0, item.specialMaterialSurchargeGp);
+  if (!item.specialMaterial) return 0;
+  if (item.specialMaterial === "Adamantine") {
+    if (itemType === "weapon") return 3000;
+    if (itemType === "shield") return 2000;
+    if (itemType === "armor") return 5000;
+    return Math.round(item.basePriceGp * 2);
+  }
+  if (item.specialMaterial === "Mithril") {
+    if (itemType === "shield") return 1000;
+    if (itemType === "armor") return 4000;
+    return 500;
+  }
+  if (item.specialMaterial === "Cold Iron") return itemType === "weapon" ? item.basePriceGp : Math.round(item.basePriceGp * 0.5);
+  if (item.specialMaterial === "Alchemical Silver" || item.specialMaterial === "Silver") {
+    return itemType === "weapon" ? 90 : Math.round(item.basePriceGp * 0.25);
+  }
+  return Math.round(item.basePriceGp * 0.5);
+}
+
+function minimumCraftingHours(complexity: Complexity) {
+  return complexity === "very-simple" ? 1 : 8;
+}
+
+function halvingCount(value: number | undefined) {
+  return Math.max(0, Math.min(3, Math.floor(Math.max(0, value ?? 0) / 5)));
+}
+
+function halveHours(hours: number, halvings: number, complexity: Complexity) {
+  return Math.max(minimumCraftingHours(complexity), Math.ceil(hours / Math.pow(2, Math.max(0, Math.min(3, halvings)))));
+}
+
+export function deriveCraftingStats(
+  item: ForgeItem,
+  profile?: Pick<ForgeProfile, "craftRanks">,
+): {
+  hours: number;
+  dc: number;
+  marketPriceGp: number;
+  rawMaterialCostGp: number;
+  qualityGoal: CraftQualityGoal;
+  itemType: CraftItemType;
+  rankHalvings: number;
+  qualitySurchargeGp: number;
+  specialMaterialSurchargeGp: number;
+} {
+  const itemType = item.itemType ?? defaultItemTypeForItem(item);
+  const qualityGoal = defaultQualityGoalForItem({ ...item, itemType });
+  let hours = complexityHours[item.complexity];
+  if (qualityGoal === "masterwork" || qualityGoal === "dwarvencraft") hours = Math.ceil(hours * 1.5);
+  if (qualityGoal === "dwarvencraft") hours = Math.ceil(hours * 1.25);
+  if (item.specialMaterial) hours = Math.ceil(hours * 1.5);
+  const rankHalvings = halvingCount(profile?.craftRanks?.[item.category]);
+  hours = halveHours(hours, rankHalvings, item.complexity);
+
   const dc =
     10 +
     complexityDcModifier[item.complexity] +
-    (item.masterwork ? 4 : 0) +
+    (qualityGoal === "masterwork" || qualityGoal === "dwarvencraft" ? 4 : 0) +
+    (qualityGoal === "dwarvencraft" ? 2 : 0) +
     (item.specialMaterial ? specialMaterialDc[item.specialMaterial] ?? 0 : 0);
+  const qualityCost = qualitySurchargeGp(itemType, qualityGoal);
+  const materialSurcharge = specialMaterialSurchargeGp(item, itemType);
+  const marketPriceGp = Math.max(0, Math.round(item.basePriceGp + qualityCost + materialSurcharge));
 
-  return { hours, dc };
+  return {
+    hours,
+    dc,
+    marketPriceGp,
+    rawMaterialCostGp: Math.ceil(marketPriceGp / 3),
+    qualityGoal,
+    itemType,
+    rankHalvings,
+    qualitySurchargeGp: qualityCost,
+    specialMaterialSurchargeGp: materialSurcharge,
+  };
 }
 
-export function getProjectRequirements(project: ForgeProject): { hours: number; dc: number } {
+export function getProjectRequirements(project: ForgeProject, state?: CampaignState): { hours: number; dc: number } {
   if (project.resolutionMode === "craftingPdf") {
-    return deriveCraftingStats(project.item);
+    const stats = deriveCraftingStats(project.item, state?.profile);
+    return { hours: project.hoursOverride ?? stats.hours, dc: project.craftDcOverride ?? stats.dc };
   }
 
   return { hours: project.requiredHours, dc: project.craftDc };
@@ -413,12 +532,15 @@ export function calculateProjectFinancials(
   materials: MaterialInventory,
   anchor: number,
   cap: number,
+  perfectionismWastePct = 0,
 ): ProjectFinancials {
   const physicalRows = project.materials.filter((row) => row.suppliedBy === "taark");
+  const stats = deriveCraftingStats(project.item);
+  const rulesMaterialCost = project.rawMaterialCostOverrideGp ?? stats.rawMaterialCostGp;
   const trueMaterialCost =
     project.materialSupplyMode === "client_supplies" || project.materialSupplyMode === "no_material_cost"
       ? 0
-      : physicalRows.reduce((total, row) => total + materialCost(materials, row), 0);
+      : rulesMaterialCost;
   const reimbursedRows = physicalRows.filter(
     (row) => row.reimbursed || project.materialSupplyMode === "client_reimburses",
   );
@@ -447,11 +569,13 @@ export function calculateProjectFinancials(
         : 0;
 
   const isProfitCoupled = project.economicMode === "profit_bearing" || project.economicMode === "dm_override";
+  const perfectionismWaste =
+    isProfitCoupled ? Math.round(Math.max(0, trueMargin) * (Math.max(0, perfectionismWastePct) / 100)) : 0;
   const shadedProfit =
     project.economicMode === "dm_override"
       ? project.dmFixedPayout ?? trueMargin
       : isProfitCoupled
-        ? shadeTowardAnchor(trueMargin, anchor, cap)
+        ? trueMargin
         : 0;
   const recognitionRatio =
     isProfitCoupled && trueMargin > 0 ? Math.max(0, Math.min(1, shadedProfit / trueMargin)) : 0;
@@ -467,21 +591,23 @@ export function calculateProjectFinancials(
       : project.economicMode === "internal_asset" || project.economicMode === "no_revenue" || project.economicMode === "reputation_only"
         ? -Math.max(0, unreimbursedMaterialCost + project.specialExpenses)
         : trueRevenue - trueMaterialCost - project.specialExpenses;
+  const physicalRecipeCost = Math.max(1, physicalRows.reduce((total, row) => total + materialCost(materials, row), 0));
+  const physicalEquivalent = (row: ProjectMaterial) => Math.round(trueMaterialCost * (materialCost(materials, row) / physicalRecipeCost));
 
   const physicalMaterialsConsumed = physicalRows.map((row) => ({
     material: row.material,
     lbs: row.lbs,
-    gpEquivalent: Math.round(materialCost(materials, row)),
+    gpEquivalent: physicalEquivalent(row),
   }));
   const recognizedMaterialsConsumed = physicalRows.map((row) => ({
     material: row.material,
     lbsEquivalent: Number((row.lbs * recognitionRatio).toFixed(2)),
-    gpEquivalent: Math.round(materialCost(materials, row) * recognitionRatio),
+    gpEquivalent: Math.round(physicalEquivalent(row) * recognitionRatio),
   }));
   const unrecognizedMaterialBalance = physicalRows.map((row) => ({
     material: row.material,
     lbsEquivalent: Number((row.lbs * (1 - recognitionRatio)).toFixed(2)),
-    gpEquivalent: Math.round(materialCost(materials, row) * (1 - recognitionRatio)),
+    gpEquivalent: Math.round(physicalEquivalent(row) * (1 - recognitionRatio)),
     note: isProfitCoupled
       ? "Deferred from the DM-balanced monthly economy."
       : "Physical obligation/investment outside paid commission profit.",
@@ -504,6 +630,7 @@ export function calculateProjectFinancials(
     recognizedRevenue,
     recognizedMaterialBurden,
     recognizedSpecialExpenses,
+    perfectionismWaste,
     unreimbursedMaterialCost,
     netCashImpact,
     recognitionRatio,
@@ -518,7 +645,8 @@ export function calculateProjectFinancials(
       `True Project Value: ${trueRevenue.toLocaleString()} gp`,
       `True Material Cost: ${Math.round(trueMaterialCost).toLocaleString()} gp`,
       `True Margin: ${Math.round(trueMargin).toLocaleString()} gp`,
-      `Shaded Monthly Profit: ${Math.round(shadedProfit).toLocaleString()} gp`,
+      `Ledger Project Profit Before Perfectionism: ${Math.round(shadedProfit).toLocaleString()} gp`,
+      `Perfectionism Cost Applied At Month End: ${Math.round(perfectionismWaste).toLocaleString()} gp`,
       `Recognition Ratio: ${Math.round(recognitionRatio * 100)}%`,
       `Opportunity Cost: ${Math.round(opportunityCost).toLocaleString()} gp`,
     ],
@@ -538,9 +666,9 @@ function consumeProjectMaterials(materials: MaterialInventory, project: ForgePro
 }
 
 function hasMaterials(materials: MaterialInventory, requirement: ForgeItem["materialRecipe"]) {
-  return (Object.entries(requirement) as Array<[MaterialName, number]>).every(
-    ([material, amount]) => materials[material].lbs >= amount,
-  );
+  void materials;
+  void requirement;
+  return true;
 }
 
 function consumeInventoryMaterials(materials: MaterialInventory, requirement: ForgeItem["materialRecipe"]) {
@@ -564,15 +692,10 @@ function replenishInventory(
     let quantity = stock.quantity;
 
     while (quantity < stock.target && hours >= requirements.hours) {
-      if (!hasMaterials(nextMaterials, stock.item.materialRecipe)) {
-        notes.push(`Shelf stock delayed for ${stock.item.name}: tracked metals are short.`);
-        break;
-      }
-
       quantity += 1;
       hours -= requirements.hours;
       nextMaterials = consumeInventoryMaterials(nextMaterials, stock.item.materialRecipe);
-      notes.push(`Finished speculative inventory: ${stock.item.name}.`);
+      notes.push(`Finished speculative inventory: ${stock.item.name}; guild supply covers any metal shortfall.`);
     }
 
     return { ...stock, quantity };
@@ -1041,38 +1164,17 @@ function craftQualityFromTotal(roll: number, total: number, dc: number): CraftQu
   return "bad_failure";
 }
 
-function progressEfficiencyFromCraft(roll: number, total: number, dc: number): number {
-  if (roll === 20) return 1.5;
-  const margin = total - dc;
-  if (margin >= 15) return 1.35;
-  if (margin >= 10) return 1.2;
-  if (margin >= 0) return 1;
-  if (margin >= -5) return 0.75;
-  return 0.5;
+function craftSucceeded(quality: CraftQuality) {
+  return quality === "success" || quality === "excellent" || quality === "exceptional" || quality === "natural_20";
 }
 
-function progressEfficiencyForProject(project: ForgeProject, roll: number, total: number, dc: number): number {
-  const efficiency = progressEfficiencyFromCraft(roll, total, dc);
-  return project.resolutionMode === "fixedHours" ? Math.max(1, efficiency) : efficiency;
-}
-
-function minimumProgressEfficiencyForProject(state: CampaignState, project: ForgeProject): number {
-  const requirements = getProjectRequirements(project);
-  let minimum = Number.POSITIVE_INFINITY;
-  for (let roll = 1; roll <= 20; roll += 1) {
-    const total = roll + craftBonusForProject(state, project);
-    minimum = Math.min(minimum, progressEfficiencyForProject(project, roll, total, requirements.dc));
-  }
-  return Number.isFinite(minimum) ? minimum : 1;
+function craftLostMaterials(quality: CraftQuality) {
+  return quality === "bad_failure";
 }
 
 function completionProtectedHoursForProject(state: CampaignState, project: ForgeProject): number {
-  const requirements = getProjectRequirements(project);
-  const remaining = Math.max(0, requirements.hours - project.hoursInvested);
-  if (remaining === 0) return 0;
-  const worstCaseProtection = Math.ceil(remaining / Math.max(0.25, minimumProgressEfficiencyForProject(state, project)));
-  const practicalBufferLimit = Math.ceil(remaining * 1.5);
-  return Math.max(remaining, Math.min(worstCaseProtection, practicalBufferLimit));
+  const requirements = getProjectRequirements(project, state);
+  return Math.max(0, requirements.hours - project.hoursInvested);
 }
 
 function totalProtectedCommissionHours(state: CampaignState): number {
@@ -1150,7 +1252,7 @@ export function allocateCommissionProjectHours(state: CampaignState, commissionH
   const allocation = new Map<string, number>();
 
   for (const { project } of active) {
-    const requirements = getProjectRequirements(project);
+    const requirements = getProjectRequirements(project, state);
     const nominalHours = Math.max(0, requirements.hours - project.hoursInvested);
     const assigned = Math.min(remainingPool, nominalHours);
     allocation.set(project.id, assigned);
@@ -1170,7 +1272,7 @@ export function allocateCommissionProjectHours(state: CampaignState, commissionH
     .filter((project) => project.status === "queued" || project.status === "in_progress")
     .map((project) => {
       const allocatedHours = allocation.get(project.id) ?? 0;
-      const requirements = getProjectRequirements(project);
+      const requirements = getProjectRequirements(project, state);
       const nominalHours = Math.max(0, requirements.hours - project.hoursInvested);
       const protectedHours = completionProtectedHoursForProject(state, project);
       const bufferHours = Math.max(0, allocatedHours - nominalHours);
@@ -1244,12 +1346,12 @@ function plannedWorkTotal(draft: MonthlyResolutionDraft): number {
 }
 
 function recomputedTotalHours(draft: MonthlyResolutionDraft): number {
-  return (
+  const baseTotal =
     Math.max(0, draft.hourInputs.baseHours) +
     Math.max(0, draft.hourInputs.ringOfSustenanceBonus) +
-    Math.max(0, draft.hourInputs.workaholicBonus) +
-    Math.round(draft.hourInputs.eventHourModifier || 0)
-  );
+    Math.max(0, draft.hourInputs.workaholicBonus);
+  const eventPct = Math.max(-90, Math.min(200, draft.hourInputs.eventHourModifier || 0));
+  return Math.max(0, Math.round(baseTotal * (1 + eventPct / 100)));
 }
 
 function boundedReputationChange(rawChange: number): number {
@@ -1281,6 +1383,10 @@ function targetedShopDemand(
   return Math.max(0, desiredNonCommissionNet + state.profile.genericShopCostsGp - repairProfit);
 }
 
+function monthlyPerfectionismWaste(profile: Pick<ForgeProfile, "dmTargetProfitGp" | "perfectionismWastePct">) {
+  return Math.round(profile.dmTargetProfitGp * (Math.max(0, profile.perfectionismWastePct) / 100) * 0.3);
+}
+
 export function validateResolutionPlan(state: CampaignState, draft: MonthlyResolutionDraft): string[] {
   const warnings: string[] = [];
   const selectedProjectHours = selectedPlans(draft).reduce((total, plan) => total + Math.max(0, plan.allocatedHours), 0);
@@ -1301,14 +1407,9 @@ export function validateResolutionPlan(state: CampaignState, draft: MonthlyResol
   for (const plan of selectedPlans(draft)) {
     const project = activeById.get(plan.projectId);
     if (!project) continue;
-    const requirements = getProjectRequirements(project);
+    const requirements = getProjectRequirements(project, state);
     if (project.hoursInvested + plan.allocatedHours < requirements.hours) {
       warnings.push(`${project.name} cannot plausibly complete this month without strong rolls.`);
-    }
-    for (const row of project.materials) {
-      if (row.suppliedBy === "taark" && state.materials[row.material].lbs < row.lbs) {
-        warnings.push(`${project.name} needs more ${row.material} than Taark has on hand.`);
-      }
     }
   }
 
@@ -1330,7 +1431,7 @@ function effectiveAllocation(draft: MonthlyResolutionDraft, eventHours: ReturnTy
   const commissionTarget = Math.max(0, draft.allocation.commissionWorkHours + hoursByTarget.commission);
   const genericTarget = Math.max(0, draft.allocation.genericShopWorkHours + hoursByTarget.inventory + hoursByTarget.materials);
   const repairTarget = Math.max(0, draft.allocation.repairsWalkinsHours + hoursByTarget.shop);
-  const jordyTarget = Math.max(0, draft.allocation.jordyTrainingHours);
+  const jordyTarget = Math.min(240, Math.max(0, draft.allocation.jordyTrainingHours));
   const requested = commissionTarget + genericTarget + repairTarget + jordyTarget;
   const baseUnusedHours = Math.max(0, recomputedTotalHours(draft) - requested);
   const scale = requested > available && requested > 0 ? available / requested : 1;
@@ -1364,12 +1465,13 @@ function produceInventory(
   materials: MaterialInventory,
   hours: number,
   efficiency: number,
+  profile?: Pick<ForgeProfile, "craftRanks">,
 ): { inventory: InventoryItem[]; materials: MaterialInventory; itemsProduced: Array<{ itemName: string; quantity: number }> } {
   let usableHours = Math.max(0, Math.floor(hours * efficiency));
   let nextMaterials = cloneMaterials(materials);
   const produced: Array<{ itemName: string; quantity: number }> = [];
   const nextInventory = inventory.map((stock) => {
-    const requirements = deriveCraftingStats(stock.item);
+    const requirements = deriveCraftingStats(stock.item, profile);
     let quantity = stock.quantity;
     let producedQuantity = 0;
 
@@ -1425,11 +1527,9 @@ function ambientShopSales(unmetDemand: number): number {
 }
 
 function materialShortageForSelected(state: CampaignState, draft: MonthlyResolutionDraft): boolean {
-  return selectedPlans(draft).some((plan) => {
-    const project = state.projects.find((candidate) => candidate.id === plan.projectId);
-    if (!project) return false;
-    return project.materials.some((row) => row.suppliedBy === "taark" && state.materials[row.material].lbs < row.lbs);
-  });
+  void state;
+  void draft;
+  return false;
 }
 
 function recommendationFromForecast(result: ForecastResult): string[] {
@@ -1474,33 +1574,37 @@ export function forecastMonthlyPlan(state: CampaignState, draft: MonthlyResoluti
     let nextMaterials = cloneMaterials(state.materials);
     let nextInventory = state.inventory.map((stock) => ({ ...stock }));
     let commissionProfit = 0;
+    let commissionPerfectionismWaste = 0;
     const materialShortage = materialShortageForSelected(state, draft);
 
     for (const plan of selectedPlans(draft)) {
       const project = state.projects.find((candidate) => candidate.id === plan.projectId);
       if (!project) continue;
-      const roll = Math.floor(rng() * 20) + 1;
-      const requirements = getProjectRequirements(project);
+      const requirements = getProjectRequirements(project, state);
+      const funded = project.hoursInvested + (effective.projectHours[project.id] ?? 0) >= requirements.hours;
+      const roll = project.take10 ? 10 : Math.floor(rng() * 20) + 1;
       const craftTotal = roll + craftBonusForProject(state, project);
       const quality = craftQualityFromTotal(roll, craftTotal, requirements.dc);
-      const progressAdded = Math.floor((effective.projectHours[project.id] ?? 0) * progressEfficiencyForProject(project, roll, craftTotal, requirements.dc));
-      const completed = project.hoursInvested + progressAdded >= requirements.hours;
+      const completed = funded && craftSucceeded(quality);
       if (completed) {
         completionCounts[project.id] = (completionCounts[project.id] ?? 0) + 1;
         const completedProject = { ...project, hoursInvested: requirements.hours, status: "completed" as const };
-        commissionProfit += calculateProjectFinancials(
+        const financials = calculateProjectFinancials(
           completedProject,
           nextMaterials,
           state.profile.commissionAnchorGp,
           state.profile.commissionSpikeCapGp,
-        ).netCashImpact;
+          state.profile.perfectionismWastePct,
+        );
+        commissionProfit += financials.netCashImpact;
+        commissionPerfectionismWaste += financials.perfectionismWaste;
       }
-      if (quality === "excellent" || quality === "exceptional" || quality === "natural_20") {
+      if (funded && (quality === "excellent" || quality === "exceptional" || quality === "natural_20")) {
         excellentCounts[project.id] = (excellentCounts[project.id] ?? 0) + 1;
       }
     }
 
-    const production = produceInventory(nextInventory, nextMaterials, effective.genericShopWorkHours, progressEfficiencyFromRoll(genericRoll));
+    const production = produceInventory(nextInventory, nextMaterials, effective.genericShopWorkHours, progressEfficiencyFromRoll(genericRoll), state.profile);
     nextInventory = production.inventory;
     nextMaterials = production.materials;
     const eventShopMoney =
@@ -1514,8 +1618,8 @@ export function forecastMonthlyPlan(state: CampaignState, draft: MonthlyResoluti
     const sale = sellInventory(nextInventory, demand);
     const repairProfit = Math.round(effective.repairsWalkinsHours * 7);
     const shopSales = sale.shopSales + ambientShopSales(sale.unmetDemand) + eventShopMoney;
-    const genericCosts = Math.max(0, state.profile.genericShopCostsGp + materialWaste - eventMaterialsMoney);
-    const monthTotal = commissionProfit + eventCommissionMoney + shopSales + repairProfit - genericCosts;
+    const genericCosts = Math.max(0, state.profile.genericShopCostsGp + materialWaste + monthlyPerfectionismWaste(state.profile) - eventMaterialsMoney);
+    const monthTotal = commissionProfit + eventCommissionMoney + shopSales + repairProfit - genericCosts - commissionPerfectionismWaste;
 
     if (materialShortage) shortageCount += 1;
     if (demand > inventoryCapacity) demandExceededCount += 1;
@@ -1582,6 +1686,7 @@ function requiredRollWarnings(state: CampaignState, draft: MonthlyResolutionDraf
   }
   for (const plan of selectedPlans(draft)) {
     const project = state.projects.find((candidate) => candidate.id === plan.projectId);
+    if (!project || project.take10 || (plan.fundingStatus !== "funded" && plan.fundingStatus !== "buffered")) continue;
     const roll = draft.projectRolls.find((candidate) => candidate.projectId === plan.projectId)?.roll;
     if (!roll || roll < 1 || roll > 20) warnings.push(`${project?.name ?? "Selected project"} needs a crafting d20 roll.`);
   }
@@ -1620,6 +1725,7 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
   let grossCommissionProjectValue = 0;
   let recognizedCommissionProfit = eventTotals.moneyByTarget.commission;
   let materialPurchasesLosses = 0;
+  let perfectionismWaste = 0;
   let rawReputationChange = 0;
 
   for (const event of events) {
@@ -1655,27 +1761,36 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
     const plan = draft.projectPlans.find((candidate) => candidate.projectId === project.id && candidate.selected);
     if (!plan || (project.status !== "queued" && project.status !== "in_progress")) return;
 
-    const roll = draft.projectRolls.find((candidate) => candidate.projectId === project.id)?.roll ?? 10;
-    const requirements = getProjectRequirements(project);
+    const requirements = getProjectRequirements(project, state);
+    const allocatedProjectHours = effective.projectHours[project.id] ?? 0;
+    const hoursBefore = project.hoursInvested;
+    const funded = hoursBefore + allocatedProjectHours >= requirements.hours;
+    const roll = project.take10 ? 10 : funded ? draft.projectRolls.find((candidate) => candidate.projectId === project.id)?.roll ?? 10 : 10;
     const craftTotal = roll + craftBonusForProject(state, project);
     const quality = craftQualityFromTotal(roll, craftTotal, requirements.dc);
-    const hoursBefore = project.hoursInvested;
-    const hoursAdded = Math.floor((effective.projectHours[project.id] ?? 0) * progressEfficiencyForProject(project, roll, craftTotal, requirements.dc));
+    const hoursAdded = funded ? (craftSucceeded(quality) ? Math.max(0, requirements.hours - hoursBefore) : 0) : Math.min(allocatedProjectHours, Math.max(0, requirements.hours - hoursBefore));
     const hoursAfter = Math.min(requirements.hours, hoursBefore + hoursAdded);
-    const completedThisMonth = hoursAfter >= requirements.hours;
+    const completedThisMonth = funded && craftSucceeded(quality);
+    const materialFailureLoss = funded && craftLostMaterials(quality) ? Math.ceil((project.rawMaterialCostOverrideGp ?? deriveCraftingStats(project.item, state.profile).rawMaterialCostGp) / 2) : 0;
     const report = calculateProjectFinancials(
       { ...project, hoursInvested: hoursAfter, status: completedThisMonth ? "completed" : "in_progress" },
       nextMaterials,
       state.profile.commissionAnchorGp,
       state.profile.commissionSpikeCapGp,
+      state.profile.perfectionismWastePct,
     );
 
     if (completedThisMonth) {
       grossCommissionProjectValue += report.grossCashReceived;
       recognizedCommissionProfit += report.netCashImpact;
       materialPurchasesLosses += report.trueMaterialCost;
+      perfectionismWaste += report.perfectionismWaste;
       rawReputationChange += projectReputationChange(project, quality);
       nextMaterials = consumeProjectMaterials(nextMaterials, project);
+    }
+    if (materialFailureLoss > 0) {
+      materialPurchasesLosses += materialFailureLoss;
+      eventLog.push(`${project.name}: failed by 5+ and ruined ${materialFailureLoss.toLocaleString()} gp of raw materials.`);
     }
 
     const projectReport = {
@@ -1705,16 +1820,16 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
       subtitle: project.client ? `for ${project.client}` : project.kind,
       actorOrSystem: "Taark",
       roll,
-      flavorText: completedThisMonth ? "The last hammer falls and the work is ready." : "The work advances, but the bench keeps its claim into next month.",
-      mechanicalEffectText: `${hoursBefore}h -> ${hoursAfter}h of ${requirements.hours}h; craft ${roll}+${craftBonusForProject(state, project)}=${craftTotal} vs DC ${requirements.dc}; ${quality.replace("_", " ")}; ${completedThisMonth ? "completed" : "in progress"}.`,
+      flavorText: completedThisMonth ? "The last hammer falls and the work is ready." : funded ? "The piece is fully worked, but the final check does not clear it for delivery." : "The work advances, but the bench keeps its claim into next month.",
+      mechanicalEffectText: `${hoursBefore}h -> ${hoursAfter}h of ${requirements.hours}h; ${funded ? `craft ${roll}+${craftBonusForProject(state, project)}=${craftTotal} vs DC ${requirements.dc}; ${quality.replace("_", " ")}` : "not fully funded, no completion roll"}; ${materialFailureLoss ? `${materialFailureLoss.toLocaleString()} gp material loss; ` : ""}${completedThisMonth ? "completed" : "in progress"}.`,
       effectTags: ["project", quality],
     });
-    eventLog.push(`${project.name}: roll ${roll}+${craftBonusForProject(state, project)}=${craftTotal} vs DC ${requirements.dc}, ${hoursAdded}h progress, ${completedThisMonth ? "completed" : "not complete"}.`);
+    eventLog.push(`${project.name}: ${funded ? `roll ${roll}+${craftBonusForProject(state, project)}=${craftTotal} vs DC ${requirements.dc}` : "not fully funded, no completion roll"}, ${hoursAdded}h progress, ${completedThisMonth ? "completed" : "not complete"}.`);
 
   });
 
   const genericRoll = draft.taarkRolls.genericInventoryReplenishment ?? 10;
-  const production = produceInventory(nextInventory, nextMaterials, effective.genericShopWorkHours, progressEfficiencyFromRoll(genericRoll));
+  const production = produceInventory(nextInventory, nextMaterials, effective.genericShopWorkHours, progressEfficiencyFromRoll(genericRoll), state.profile);
   nextInventory = production.inventory;
   nextMaterials = production.materials;
   cards.push({
@@ -1741,12 +1856,14 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
       : materialRoll >= 17
         ? -Math.round(Math.max(100, materialPurchasesLosses) * 0.04)
         : 0;
-  const genericShopCosts = Math.max(0, state.profile.genericShopCostsGp + Math.max(0, materialWaste) - eventMaterialsMoney);
+  const operatingPerfectionismWaste = monthlyPerfectionismWaste(state.profile);
+  perfectionismWaste += operatingPerfectionismWaste;
+  const genericShopCosts = Math.max(0, state.profile.genericShopCostsGp + Math.max(0, materialWaste) + operatingPerfectionismWaste - eventMaterialsMoney);
   const demand = targetedShopDemand(state, effective, eventShopMoney, shopRoll, Math.max(0, materialWaste), eventVolatility);
   const sold = sellInventory(nextInventory, demand);
   nextInventory = sold.inventory;
   const genericShopProfit = sold.shopSales + ambientShopSales(sold.unmetDemand) + eventShopMoney;
-  const totalNetProfit = recognizedCommissionProfit + genericShopProfit + repairMiscProfit - genericShopCosts;
+  const totalNetProfit = recognizedCommissionProfit + genericShopProfit + repairMiscProfit - genericShopCosts - (perfectionismWaste - operatingPerfectionismWaste);
   const reputationChange = boundedReputationChange(rawReputationChange);
   const endingReputation = Math.max(0, Math.min(state.profile.maxReputation, state.profile.reputation + reputationChange));
 
@@ -1775,11 +1892,22 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
   const report: MonthlyResolutionReport = {
     grossCommissionProjectValue,
     controlledRecognizedCommissionProfit: recognizedCommissionProfit,
+    trueShopValue: genericShopProfit,
     genericShopProfit,
     repairMiscProfit,
     genericShopCosts,
     materialPurchasesLosses: materialPurchasesLosses + materialWaste - eventMaterialsMoney,
+    perfectionismWaste,
     totalNetProfit,
+    ledgerSummaryLines: [
+      `True commission/project value recognized this month: ${recognizedCommissionProfit.toLocaleString()} gp before Taark's Perfectionism.`,
+      `True shop value recognized this month: ${genericShopProfit.toLocaleString()} gp from tracked stock, ambient demand, and event pressure.`,
+      `Repair and walk-in work adds ${repairMiscProfit.toLocaleString()} gp.`,
+      `Ordinary shop costs are ${state.profile.genericShopCostsGp.toLocaleString()} gp; operating Perfectionism adds ${operatingPerfectionismWaste.toLocaleString()} gp.`,
+      `Project Perfectionism adds ${(perfectionismWaste - operatingPerfectionismWaste).toLocaleString()} gp in rejected, overbuilt, re-smelted, or refit material/work.`,
+      `Final net = true commission + true shop + repairs - ordinary costs - Perfectionism/material adjustments = ${totalNetProfit.toLocaleString()} gp.`,
+      `The DM target is ${state.profile.dmTargetProfitGp.toLocaleString()} gp with sigma ${state.profile.dmTargetVolatilityGp.toLocaleString()} gp; strong rolls, events, and completed commissions can legitimately exceed it.`,
+    ],
     totalAvailableHours: effective.available,
     commissionProjectHours: effective.commissionWorkHours,
     genericInventoryHours: effective.genericShopWorkHours,
@@ -1801,6 +1929,7 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
 
   for (const card of [
     ["generic-costs", "Generic Shop Costs", `${genericShopCosts.toLocaleString()} gp in costs.`],
+    ["perfectionism", "Taark's Perfectionism", `${perfectionismWaste.toLocaleString()} gp lost to rejected, overbuilt, or reworked materials.`],
     ["inventory-materials", "Inventory and Materials Update", `${report.itemsProduced.length} item groups produced; ${report.itemsSold.length} item groups sold.`],
     ["reputation", "Reputation Update", `${state.profile.reputation} -> ${endingReputation}.`],
     ["final-net", "Final Monthly Net", `${totalNetProfit.toLocaleString()} gp net.`],
@@ -1856,6 +1985,7 @@ export function applyMonthlySimulation(state: CampaignState, simulation: Monthly
     materialSavings: Math.max(0, -report.materialPurchasesLosses),
     recognizedMaterialBurden: report.projectReports.reduce((total, project) => total + project.recognizedMaterialBurden, 0),
     physicalMaterialCost: report.materialPurchasesLosses,
+    perfectionismWaste: report.perfectionismWaste,
     netProfit: report.totalNetProfit,
     reputationDelta: report.reputationChange,
     completedProjects,
@@ -1904,6 +2034,7 @@ export function applyMonthlySimulation(state: CampaignState, simulation: Monthly
         materialSavings: result.materialSavings,
         recognizedMaterialBurden: result.recognizedMaterialBurden,
         physicalMaterialCost: report.materialPurchasesLosses,
+        perfectionismWaste: report.perfectionismWaste,
         netProfit: report.totalNetProfit,
         reputationDelta: report.reputationChange,
         completedProjects,
@@ -1924,7 +2055,7 @@ export function undoLastAppliedMonth(snapshot: CampaignState | null): CampaignSt
 export function forecastProjects(state: CampaignState): ForecastBreakdown {
   const active = state.projects.filter((project) => project.status === "queued" || project.status === "in_progress");
   const projectFinancials = active.map((project) =>
-    calculateProjectFinancials(project, state.materials, state.profile.commissionAnchorGp, state.profile.commissionSpikeCapGp),
+    calculateProjectFinancials(project, state.materials, state.profile.commissionAnchorGp, state.profile.commissionSpikeCapGp, state.profile.perfectionismWastePct),
   );
   const paidCommissionProfit = projectFinancials
     .filter((report) => report.economicMode === "profit_bearing" || report.economicMode === "dm_override")
@@ -1968,7 +2099,7 @@ export function resolveMonth(state: CampaignState): { state: CampaignState; resu
   const projects = state.projects.map((project) => {
     if (project.status !== "queued" && project.status !== "in_progress") return project;
 
-    const requirements = getProjectRequirements(project);
+    const requirements = getProjectRequirements(project, state);
     const assignedHours = Math.max(0, state.labor.projectHours[project.id] || 0);
     const hoursInvested = Math.min(requirements.hours, project.hoursInvested + assignedHours);
 
@@ -2008,6 +2139,7 @@ export function resolveMonth(state: CampaignState): { state: CampaignState; resu
       nextMaterials,
       state.profile.commissionAnchorGp,
       state.profile.commissionSpikeCapGp,
+      state.profile.perfectionismWastePct,
     );
     projectReports.push(report);
     completedProjects.push(project.name);
@@ -2044,12 +2176,13 @@ export function resolveMonth(state: CampaignState): { state: CampaignState; resu
         repairsIncome,
     ),
   );
-  const genericShopCosts = Math.max(0, state.profile.genericShopCostsGp - materialSavings);
+  const genericShopCosts = Math.max(0, state.profile.genericShopCostsGp + monthlyPerfectionismWaste(state.profile) - materialSavings);
   const grossCashReceived = projectReports.reduce((total, report) => total + report.grossCashReceived, 0);
   const materialReimbursement = projectReports.reduce((total, report) => total + report.materialReimbursement, 0);
   const recognizedProjectProfit = projectReports.reduce((total, report) => total + report.recognizedProfit, 0);
   const recognizedMaterialBurden = projectReports.reduce((total, report) => total + report.recognizedMaterialBurden, 0);
   const physicalMaterialCost = projectReports.reduce((total, report) => total + report.trueMaterialCost, 0);
+  const perfectionismWaste = projectReports.reduce((total, report) => total + report.perfectionismWaste, 0) + monthlyPerfectionismWaste(state.profile);
   const netProjectImpact = projectReports.reduce((total, report) => total + report.netCashImpact, 0);
   const netProfit = netProjectImpact + shopSales - genericShopCosts;
   const forecast = forecastProjects({ ...state, projects });
@@ -2065,6 +2198,7 @@ export function resolveMonth(state: CampaignState): { state: CampaignState; resu
     materialSavings,
     recognizedMaterialBurden,
     physicalMaterialCost,
+    perfectionismWaste,
     netProfit,
     reputationDelta,
     completedProjects,
@@ -2106,6 +2240,7 @@ export function resolveMonth(state: CampaignState): { state: CampaignState; resu
         materialSavings,
         recognizedMaterialBurden,
         physicalMaterialCost,
+        perfectionismWaste,
         netProfit,
         reputationDelta,
         completedProjects,
@@ -2171,9 +2306,11 @@ function defaultInventoryArmor(
   return {
     name,
     category: "armorsmithing",
+    itemType: name.toLowerCase().includes("shield") || name.toLowerCase().includes("buckler") ? "shield" : "armor",
     complexity: "complex",
     basePriceGp,
     masterwork: true,
+    qualityGoal: "dwarvencraft",
     materialRecipe,
     ...options,
   };
@@ -2188,9 +2325,11 @@ function defaultInventoryWeapon(
   return {
     name,
     category: "weaponsmithing",
+    itemType: "weapon",
     complexity: "moderate",
     basePriceGp,
     masterwork: true,
+    qualityGoal: "masterwork",
     materialRecipe,
     ...options,
   };
@@ -2205,9 +2344,11 @@ function defaultInventoryBlacksmithing(
   return {
     name,
     category: "blacksmithing",
+    itemType: "other_metal",
     complexity: "simple",
     basePriceGp,
-    masterwork: true,
+    masterwork: false,
+    qualityGoal: "standard",
     materialRecipe,
     ...options,
   };
@@ -2223,9 +2364,11 @@ function defaultInventoryFineOrLocksmithing(
   return {
     name,
     category,
+    itemType: "tool",
     complexity: category === "locksmithing" ? "moderate" : "simple",
     basePriceGp,
-    masterwork: true,
+    masterwork: false,
+    qualityGoal: "standard",
     materialRecipe,
     ...options,
   };
@@ -2248,6 +2391,15 @@ const inventoryTargetFloors: Record<string, number> = {
   buckler: 8,
   "full-plate-mw": 2,
   "half-plate-mw": 2,
+  "chainmail-dc": 3,
+  "splint-mail-dc": 2,
+  "banded-mail-dc": 2,
+  "mithril-chainmail": 1,
+  "mithril-full-plate": 1,
+  "adamantine-chain-shirt": 1,
+  "adamantine-full-plate": 1,
+  "shield-spikes-dc": 4,
+  "spiked-heavy-shield": 2,
   "battleaxe-mw": 2,
   "warhammer-mw": 2,
   "longsword-mw": 2,
@@ -2256,24 +2408,55 @@ const inventoryTargetFloors: Record<string, number> = {
   "short-sword-mw": 2,
   "mace-mw": 2,
   "spearheads-mw": 4,
+  "greataxe-mw": 1,
+  "dwarven-waraxe-mw": 2,
+  "greatsword-mw": 1,
+  "morningstar-mw": 2,
+  "scimitar-mw": 1,
+  "rapier-mw": 1,
+  "arrowheads-mw": 6,
+  "lance-heads-mw": 2,
+  "crossbow-parts-mw": 2,
   "simple-lock-mw": 4,
   "good-lock-mw": 3,
   "reinforced-lockset-mw": 2,
+  "average-lock": 4,
+  "superior-lock": 1,
+  "padlocks": 6,
+  "key-blanks": 12,
+  "manacles": 3,
+  "strongbox-hardware": 2,
   "hinges-mw": 4,
   "buckles-clasps-mw": 5,
   "armor-fittings-mw": 4,
   "lantern-frames-mw": 3,
   "jewelry-fittings-mw": 2,
+  "nails-rivets": 10,
+  "horseshoes": 8,
+  "chain-lengths": 4,
+  "iron-bands": 6,
+  "cauldron-hooks": 3,
+  "grates": 2,
+  "door-hardware": 4,
 };
 
 function inventoryBackfillRows(): InventoryItem[] {
   return [
     { id: "half-plate-mw", item: defaultInventoryArmor("Half-Plate (MW)", 600, { Steel: 42 }), quantity: 0, target: 2 },
+    { id: "chainmail-dc", item: defaultInventoryArmor("Chainmail", 150, { Steel: 40 }), quantity: 0, target: 3 },
+    { id: "splint-mail-dc", item: defaultInventoryArmor("Splint Mail", 200, { Steel: 45 }), quantity: 0, target: 2 },
+    { id: "banded-mail-dc", item: defaultInventoryArmor("Banded Mail", 250, { Steel: 45 }), quantity: 0, target: 2 },
     { id: "mithril-buckler", item: defaultInventoryArmor("Mithril Buckler", 1015, { Mithril: 5 }, { complexity: "moderate", specialMaterial: "Mithril" }), quantity: 0, target: 2 },
     { id: "mithril-light-shield", item: defaultInventoryArmor("Mithril Light Shield", 1009, { Mithril: 8 }, { complexity: "moderate", specialMaterial: "Mithril" }), quantity: 0, target: 2 },
+    { id: "mithril-chainmail", item: defaultInventoryArmor("Mithril Chainmail", 5150, { Mithril: 28 }, { specialMaterial: "Mithril" }), quantity: 0, target: 1 },
+    { id: "mithril-full-plate", item: defaultInventoryArmor("Mithril Full Plate", 10500, { Mithril: 35 }, { specialMaterial: "Mithril" }), quantity: 0, target: 1 },
+    { id: "adamantine-chain-shirt", item: defaultInventoryArmor("Adamantine Chain Shirt", 5250, { Adamantine: 25, Steel: 6 }, { specialMaterial: "Adamantine" }), quantity: 0, target: 1 },
     { id: "adamantine-breastplate", item: defaultInventoryArmor("Adamantine Breastplate", 6200, { Adamantine: 35, Steel: 12 }, { specialMaterial: "Adamantine" }), quantity: 0, target: 1 },
     { id: "adamantine-shield", item: defaultInventoryArmor("Adamantine Heavy Shield", 3020, { Adamantine: 18, Steel: 4 }, { complexity: "moderate", specialMaterial: "Adamantine" }), quantity: 0, target: 1 },
     { id: "adamantine-half-plate", item: defaultInventoryArmor("Adamantine Half-Plate", 10600, { Adamantine: 44, Steel: 12 }, { specialMaterial: "Adamantine" }), quantity: 0, target: 1 },
+    { id: "adamantine-full-plate", item: defaultInventoryArmor("Adamantine Full Plate", 16500, { Adamantine: 55, Steel: 14 }, { specialMaterial: "Adamantine" }), quantity: 0, target: 1 },
+    { id: "shield-spikes-dc", item: defaultInventoryArmor("Shield Spikes", 10, { Steel: 4 }, { complexity: "simple", itemType: "shield" }), quantity: 0, target: 4 },
+    { id: "spiked-heavy-shield", item: defaultInventoryArmor("Spiked Heavy Shield", 30, { Steel: 14 }, { complexity: "moderate", itemType: "shield" }), quantity: 0, target: 2 },
     { id: "battleaxe-mw", item: defaultInventoryWeapon("Battleaxe (MW)", 310, { Steel: 8 }), quantity: 0, target: 2 },
     { id: "warhammer-mw", item: defaultInventoryWeapon("Warhammer (MW)", 312, { Steel: 8 }), quantity: 0, target: 2 },
     { id: "longsword-mw", item: defaultInventoryWeapon("Longsword (MW)", 315, { Steel: 6 }), quantity: 0, target: 2 },
@@ -2282,14 +2465,36 @@ function inventoryBackfillRows(): InventoryItem[] {
     { id: "short-sword-mw", item: defaultInventoryWeapon("Short Sword (MW)", 310, { Steel: 5 }), quantity: 0, target: 2 },
     { id: "mace-mw", item: defaultInventoryWeapon("Heavy Mace (MW)", 312, { Steel: 7 }), quantity: 0, target: 2 },
     { id: "spearheads-mw", item: defaultInventoryWeapon("Spearheads (MW)", 120, { Steel: 6 }, { complexity: "simple" }), quantity: 0, target: 4 },
-    { id: "simple-lock-mw", item: defaultInventoryFineOrLocksmithing("locksmithing", "Simple Lock (MW)", 120, { Steel: 2, Brass: 1 }), quantity: 0, target: 4 },
-    { id: "good-lock-mw", item: defaultInventoryFineOrLocksmithing("locksmithing", "Good Lock (MW)", 220, { Steel: 3, Brass: 1 }), quantity: 0, target: 3 },
-    { id: "reinforced-lockset-mw", item: defaultInventoryFineOrLocksmithing("locksmithing", "Reinforced Lockset (MW)", 360, { Steel: 6, Brass: 2 }), quantity: 0, target: 2 },
-    { id: "hinges-mw", item: defaultInventoryBlacksmithing("Reinforced Hinges (MW)", 90, { Steel: 8 }), quantity: 0, target: 4 },
-    { id: "buckles-clasps-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Buckles and Clasps (MW)", 80, { Brass: 2, Steel: 1 }), quantity: 0, target: 5 },
-    { id: "armor-fittings-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Armor Fittings (MW)", 140, { Brass: 3, Steel: 2 }), quantity: 0, target: 4 },
-    { id: "lantern-frames-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Lantern Frames (MW)", 120, { Brass: 4, Copper: 1 }), quantity: 0, target: 3 },
-    { id: "jewelry-fittings-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Jewelry Fittings (MW)", 180, { Silver: 1, Gold: 0.25 }), quantity: 0, target: 2 },
+    { id: "greataxe-mw", item: defaultInventoryWeapon("Greataxe (MW)", 320, { Steel: 12 }), quantity: 0, target: 1 },
+    { id: "dwarven-waraxe-mw", item: defaultInventoryWeapon("Dwarven Waraxe (MW)", 330, { Steel: 10 }), quantity: 0, target: 2 },
+    { id: "greatsword-mw", item: defaultInventoryWeapon("Greatsword (MW)", 350, { Steel: 12 }), quantity: 0, target: 1 },
+    { id: "morningstar-mw", item: defaultInventoryWeapon("Morningstar (MW)", 308, { Steel: 7 }), quantity: 0, target: 2 },
+    { id: "scimitar-mw", item: defaultInventoryWeapon("Scimitar (MW)", 315, { Steel: 6 }), quantity: 0, target: 1 },
+    { id: "rapier-mw", item: defaultInventoryWeapon("Rapier (MW)", 320, { Steel: 5 }), quantity: 0, target: 1 },
+    { id: "arrowheads-mw", item: defaultInventoryWeapon("Arrowheads Batch (MW)", 60, { Steel: 3 }, { complexity: "simple" }), quantity: 0, target: 6 },
+    { id: "lance-heads-mw", item: defaultInventoryWeapon("Lance Heads (MW)", 115, { Steel: 8 }, { complexity: "simple" }), quantity: 0, target: 2 },
+    { id: "crossbow-parts-mw", item: defaultInventoryWeapon("Crossbow Metalwork (MW)", 335, { Steel: 8, Brass: 1 }), quantity: 0, target: 2 },
+    { id: "simple-lock-mw", item: defaultInventoryFineOrLocksmithing("locksmithing", "Simple Lock", 120, { Steel: 2, Brass: 1 }), quantity: 0, target: 4 },
+    { id: "good-lock-mw", item: defaultInventoryFineOrLocksmithing("locksmithing", "Good Lock", 220, { Steel: 3, Brass: 1 }), quantity: 0, target: 3 },
+    { id: "reinforced-lockset-mw", item: defaultInventoryFineOrLocksmithing("locksmithing", "Reinforced Lockset", 360, { Steel: 6, Brass: 2 }), quantity: 0, target: 2 },
+    { id: "average-lock", item: defaultInventoryFineOrLocksmithing("locksmithing", "Average Lock", 80, { Steel: 2, Brass: 1 }), quantity: 0, target: 4 },
+    { id: "superior-lock", item: defaultInventoryFineOrLocksmithing("locksmithing", "Superior Lock", 150, { Steel: 4, Brass: 2 }), quantity: 0, target: 1 },
+    { id: "padlocks", item: defaultInventoryFineOrLocksmithing("locksmithing", "Padlocks", 60, { Steel: 2, Brass: 1 }, { complexity: "simple" }), quantity: 0, target: 6 },
+    { id: "key-blanks", item: defaultInventoryFineOrLocksmithing("locksmithing", "Key Blanks", 25, { Brass: 1 }, { complexity: "very-simple" }), quantity: 0, target: 12 },
+    { id: "manacles", item: defaultInventoryFineOrLocksmithing("locksmithing", "Manacles", 15, { Steel: 5 }), quantity: 0, target: 3 },
+    { id: "strongbox-hardware", item: defaultInventoryFineOrLocksmithing("locksmithing", "Strongbox Hardware", 95, { Steel: 5, Brass: 1 }), quantity: 0, target: 2 },
+    { id: "hinges-mw", item: defaultInventoryBlacksmithing("Reinforced Hinges", 90, { Steel: 8 }), quantity: 0, target: 4 },
+    { id: "buckles-clasps-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Buckles and Clasps", 80, { Brass: 2, Steel: 1 }), quantity: 0, target: 5 },
+    { id: "armor-fittings-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Armor Fittings", 140, { Brass: 3, Steel: 2 }), quantity: 0, target: 4 },
+    { id: "lantern-frames-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Lantern Frames", 120, { Brass: 4, Copper: 1 }), quantity: 0, target: 3 },
+    { id: "jewelry-fittings-mw", item: defaultInventoryFineOrLocksmithing("finesmithing", "Jewelry Fittings", 180, { Silver: 1, Gold: 0.25 }), quantity: 0, target: 2 },
+    { id: "nails-rivets", item: defaultInventoryBlacksmithing("Nails and Rivets", 20, { Steel: 4 }, { complexity: "very-simple" }), quantity: 0, target: 10 },
+    { id: "horseshoes", item: defaultInventoryBlacksmithing("Horseshoes", 35, { Steel: 6 }, { complexity: "simple" }), quantity: 0, target: 8 },
+    { id: "chain-lengths", item: defaultInventoryBlacksmithing("Chain Lengths", 50, { Steel: 10 }), quantity: 0, target: 4 },
+    { id: "iron-bands", item: defaultInventoryBlacksmithing("Iron Bands", 30, { Iron: 12 }, { complexity: "simple" }), quantity: 0, target: 6 },
+    { id: "cauldron-hooks", item: defaultInventoryBlacksmithing("Cauldron Hooks", 24, { Iron: 8 }, { complexity: "simple" }), quantity: 0, target: 3 },
+    { id: "grates", item: defaultInventoryBlacksmithing("Hearth Grates", 75, { Iron: 25 }), quantity: 0, target: 2 },
+    { id: "door-hardware", item: defaultInventoryBlacksmithing("Door Hardware", 65, { Iron: 14, Steel: 4 }), quantity: 0, target: 4 },
   ];
 }
 
@@ -2298,10 +2503,57 @@ function normalizeInventoryTargets(inventory: InventoryItem[]): InventoryItem[] 
   return [
     ...inventory.map((stock) => ({
       ...stock,
+      item: normalizeForgeItem(stock.item),
       target: Math.max(stock.target, inventoryTargetFloors[stock.id] ?? stock.target),
     })),
     ...inventoryBackfillRows().filter((stock) => !byId.has(stock.id)),
   ];
+}
+
+function defaultCraftRanks(overrides?: Partial<ForgeProfile["craftRanks"]>): ForgeProfile["craftRanks"] {
+  return {
+    armorsmithing: overrides?.armorsmithing ?? 18,
+    weaponsmithing: overrides?.weaponsmithing ?? 10,
+    blacksmithing: overrides?.blacksmithing ?? 5,
+    finesmithing: overrides?.finesmithing ?? 3,
+    locksmithing: overrides?.locksmithing ?? 5,
+  };
+}
+
+function normalizeForgeItem(item: ForgeItem): ForgeItem {
+  const itemType = item.itemType ?? defaultItemTypeForItem(item);
+  const qualityGoal = defaultQualityGoalForItem({ ...item, itemType });
+  return {
+    ...item,
+    itemType,
+    qualityGoal,
+    masterwork: qualityGoal === "masterwork" || qualityGoal === "dwarvencraft",
+  };
+}
+
+function normalizeProjectForRules(project: ForgeProject, profile: ForgeProfile): ForgeProject {
+  const item = normalizeForgeItem(project.item);
+  const stats = deriveCraftingStats(item, profile);
+  const requiredHours = project.resolutionMode === "craftingPdf" ? stats.hours : Math.max(1, project.requiredHours || stats.hours);
+  const craftDc = project.resolutionMode === "craftingPdf" ? stats.dc : Math.max(1, project.craftDc || stats.dc);
+  const materialCost = project.rawMaterialCostOverrideGp ?? stats.rawMaterialCostGp;
+  const trueContractValue = project.trueContractValue || stats.marketPriceGp;
+
+  return {
+    ...project,
+    item,
+    itemType: stats.itemType,
+    listedItemValue: project.marketPriceOverrideGp ?? stats.marketPriceGp,
+    materialCost,
+    trueContractValue,
+    laborFee: Math.max(0, trueContractValue - materialCost),
+    trueMargin: Math.max(0, trueContractValue - materialCost - project.specialExpenses),
+    requiredHours,
+    craftDc,
+    hoursInvested: Math.min(Math.max(0, project.hoursInvested), requiredHours),
+    materials: project.materials?.length ? project.materials : materialRowsFromRecipe(item.materialRecipe),
+    take10: project.take10 ?? false,
+  };
 }
 
 function priorityFromLegacy(priority: "High" | "Medium" | "Low"): Priority {
@@ -2328,8 +2580,8 @@ export function migrateLegacyCampaignState(legacy: LegacyCampaignState): Campaig
       economicMode,
       materialSupplyMode,
       payoutMode: isFairstream ? "materials_plus_labor" : "no_payment",
-      item: commission.item,
-      itemType: commission.item.name,
+      item: normalizeForgeItem(commission.item),
+      itemType: defaultItemTypeForItem(commission.item),
       status:
         commission.status === "completed" ? "completed" : commission.status === "paused" ? "queued" : "in_progress",
       priority: priorityFromLegacy(commission.priority),
@@ -2348,6 +2600,7 @@ export function migrateLegacyCampaignState(legacy: LegacyCampaignState): Campaig
       notes: commission.notes,
       resolutionMode: commission.resolutionMode,
       draftRoll: commission.draftRoll,
+      take10: false,
     };
   });
 
@@ -2362,7 +2615,9 @@ export function migrateLegacyCampaignState(legacy: LegacyCampaignState): Campaig
       commissionAnchorGp: 1400,
       commissionSpikeCapGp: 1000,
       dmTargetProfitGp: 2000,
-      dmTargetVolatilityGp: 1000,
+      dmTargetVolatilityGp: 500,
+      craftRanks: defaultCraftRanks(legacy.profile.craftRanks),
+      perfectionismWastePct: legacy.profile.perfectionismWastePct ?? 45,
     },
     materials,
     projects,
@@ -2376,6 +2631,7 @@ export function migrateLegacyCampaignState(legacy: LegacyCampaignState): Campaig
     settings: {
       ...legacy.settings,
       materialBalancingMode: "profit_coupled",
+      materialSupplyPolicy: "guild_auto_supplies",
     },
     ledger: [],
     lastResolution: undefined,
@@ -2403,31 +2659,39 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
   const toolForgeBonus = (state.profile.forgeBonus || 0) + (state.profile.toolBonus || 0);
   const materials = normalizeMaterialInventory(state.materials);
   const inventory = normalizeInventoryTargets(state.inventory);
-  const projects = state.projects.some((project) => project.id === "iron-doors-mermaid")
+  const profile: ForgeProfile = {
+    ...state.profile,
+    skills: {
+      ...state.profile.skills,
+      armorsmithing: Math.max(0, 35 - toolForgeBonus),
+      weaponsmithing: Math.max(0, 12 - toolForgeBonus),
+      blacksmithing: Math.max(0, 7 - toolForgeBonus),
+      finesmithing: 3 - toolForgeBonus,
+      locksmithing: 5 - toolForgeBonus,
+    },
+    craftRanks: defaultCraftRanks(state.profile.craftRanks),
+    genericShopCostsGp,
+    shopProfitBaselineGp,
+    dmTargetProfitGp: state.profile.dmTargetProfitGp || 2000,
+    dmTargetVolatilityGp: state.profile.dmTargetVolatilityGp || 500,
+    perfectionismWastePct: state.profile.perfectionismWastePct ?? 45,
+  };
+  const baseProjects = state.projects.some((project) => project.id === "iron-doors-mermaid")
     ? state.projects
-    : [...state.projects, createIronDoorsProject(materials)];
+    : [...state.projects, createIronDoorsProject(materials, profile)];
+  const projects = baseProjects.map((project) => normalizeProjectForRules(project, profile));
 
   return {
     ...state,
     materials,
     inventory,
     monthLabel: normalizeCampaignMonthLabel(state.monthLabel, state.currentMonth),
-    profile: {
-      ...state.profile,
-      skills: {
-        ...state.profile.skills,
-        armorsmithing: Math.max(0, 35 - toolForgeBonus),
-        weaponsmithing: Math.max(0, 12 - toolForgeBonus),
-        blacksmithing: Math.max(0, 7 - toolForgeBonus),
-        finesmithing: 3 - toolForgeBonus,
-        locksmithing: 5 - toolForgeBonus,
-      },
-      genericShopCostsGp,
-      shopProfitBaselineGp,
-      dmTargetProfitGp: state.profile.dmTargetProfitGp || 2000,
-      dmTargetVolatilityGp: state.profile.dmTargetVolatilityGp || 1000,
-    },
+    profile,
     projects,
+    settings: {
+      ...state.settings,
+      materialSupplyPolicy: "guild_auto_supplies",
+    },
     labor: {
       ...state.labor,
       projectHours: {
@@ -2438,18 +2702,20 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
   };
 }
 
-function createIronDoorsProject(materials: MaterialInventory): ForgeProject {
+function createIronDoorsProject(materials: MaterialInventory, profile?: ForgeProfile): ForgeProject {
   const item: ForgeItem = {
     name: "Reinforced Iron Doors",
     category: "blacksmithing",
+    itemType: "other_metal",
     complexity: "complex",
     basePriceGp: 900,
     masterwork: false,
+    qualityGoal: "standard",
     materialRecipe: { Iron: 160, Steel: 20 },
   };
-  const stats = deriveCraftingStats(item);
+  const stats = deriveCraftingStats(item, profile);
   const materialRows = materialRowsFromRecipe(item.materialRecipe);
-  const materialCostValue = materialRows.reduce((total, row) => total + materialCost(materials, row), 0);
+  const materialCostValue = stats.rawMaterialCostGp;
 
   return {
     id: "iron-doors-mermaid",
@@ -2460,7 +2726,7 @@ function createIronDoorsProject(materials: MaterialInventory): ForgeProject {
     materialSupplyMode: "taark_supplies",
     payoutMode: "true_contract_value",
     item,
-    itemType: item.name,
+    itemType: stats.itemType,
     status: "in_progress",
     priority: "medium",
     trueContractValue: 1400,
@@ -2477,6 +2743,7 @@ function createIronDoorsProject(materials: MaterialInventory): ForgeProject {
     materials: materialRows,
     notes: "Heavy iron door commission for the tavern/forge entryways.",
     resolutionMode: "fixedHours",
+    take10: false,
   };
 }
 

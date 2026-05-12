@@ -26,6 +26,10 @@ export type SkillKey = "armorsmithing" | "weaponsmithing" | "blacksmithing" | "f
 
 export type ResolutionMode = "fixedHours" | "craftingPdf";
 
+export type CraftQualityGoal = "standard" | "masterwork" | "dwarvencraft";
+
+export type CraftItemType = "weapon" | "armor" | "shield" | "tool" | "other_metal";
+
 export type ProjectStatus = "queued" | "in_progress" | "completed" | "delivered" | "cancelled";
 
 export type Priority = "low" | "medium" | "high" | "urgent";
@@ -88,6 +92,7 @@ export interface ForgeProfile {
   reputation: number;
   maxReputation: number;
   skills: Record<SkillKey, number>;
+  craftRanks: Record<SkillKey, number>;
   forgeQuality: string;
   toolQuality: string;
   forgeBonus: number;
@@ -100,15 +105,19 @@ export interface ForgeProfile {
   commissionSpikeCapGp: number;
   dmTargetProfitGp: number;
   dmTargetVolatilityGp: number;
+  perfectionismWastePct: number;
 }
 
 export interface ForgeItem {
   name: string;
   category: SkillKey;
+  itemType?: CraftItemType;
   complexity: Complexity;
   basePriceGp: number;
   masterwork: boolean;
+  qualityGoal?: CraftQualityGoal;
   specialMaterial?: MaterialName;
+  specialMaterialSurchargeGp?: number;
   materialRecipe: MaterialRequirement;
 }
 
@@ -141,7 +150,7 @@ export interface ForgeProject {
   materialSupplyMode: MaterialSupplyMode;
   payoutMode: PayoutMode;
   item: ForgeItem;
-  itemType: string;
+  itemType: CraftItemType;
   status: ProjectStatus;
   priority: Priority;
   trueContractValue: number;
@@ -165,6 +174,11 @@ export interface ForgeProject {
   notes?: string;
   resolutionMode: ResolutionMode;
   draftRoll?: number;
+  take10?: boolean;
+  hoursOverride?: number;
+  craftDcOverride?: number;
+  marketPriceOverrideGp?: number;
+  rawMaterialCostOverrideGp?: number;
 }
 
 export type ProjectTemplateName =
@@ -213,6 +227,7 @@ export interface ProjectFinancials {
   recognizedRevenue: number;
   recognizedMaterialBurden: number;
   recognizedSpecialExpenses: number;
+  perfectionismWaste: number;
   unreimbursedMaterialCost: number;
   netCashImpact: number;
   recognitionRatio: number;
@@ -276,6 +291,7 @@ export interface LedgerEntry {
   materialSavings: number;
   recognizedMaterialBurden: number;
   physicalMaterialCost: number;
+  perfectionismWaste: number;
   netProfit: number;
   reputationDelta: number;
   completedProjects: string[];
@@ -295,6 +311,7 @@ export interface ResolutionResult {
   materialSavings: number;
   recognizedMaterialBurden: number;
   physicalMaterialCost: number;
+  perfectionismWaste: number;
   netProfit: number;
   reputationDelta: number;
   completedProjects: string[];
@@ -453,11 +470,14 @@ export interface ProjectResolutionReport {
 export interface MonthlyResolutionReport {
   grossCommissionProjectValue: number;
   controlledRecognizedCommissionProfit: number;
+  trueShopValue: number;
   genericShopProfit: number;
   repairMiscProfit: number;
   genericShopCosts: number;
   materialPurchasesLosses: number;
+  perfectionismWaste: number;
   totalNetProfit: number;
+  ledgerSummaryLines: string[];
   totalAvailableHours: number;
   commissionProjectHours: number;
   genericInventoryHours: number;
@@ -530,6 +550,7 @@ export interface CampaignSettings {
   craftingDefault: ResolutionMode;
   randomSeed: string;
   materialBalancingMode: MaterialBalancingMode;
+  materialSupplyPolicy: "guild_auto_supplies";
 }
 
 export interface CampaignState {
@@ -554,6 +575,8 @@ export type LegacyCampaignState = Omit<CampaignState, "version" | "profile" | "m
     "genericShopCostsGp" | "commissionAnchorGp" | "commissionSpikeCapGp" | "dmTargetProfitGp" | "dmTargetVolatilityGp"
   > & {
     monthlyExpenseGp: number;
+    craftRanks?: Partial<Record<SkillKey, number>>;
+    perfectionismWastePct?: number;
   };
   materials: MaterialStock;
   commissions: Array<{
