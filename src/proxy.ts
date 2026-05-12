@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { isAuthConfigured, sessionCookieName, verifySessionToken } from "@/lib/starforge-auth";
 
-const publicPaths = ["/login", "/api/auth/unlock", "/api/auth/lock"];
+const publicPaths = ["/login", "/api/auth/unlock", "/api/auth/lock", "/api/auth/status"];
 
 function isPublicPath(pathname: string) {
   return publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
