@@ -226,8 +226,13 @@ select:focus {
   flex-direction: column;
   gap: 6px;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 8px;
+}
+
+.nav-rail > .nav-button,
+.nav-rail > .now-playing {
+  flex: 0 0 auto;
 }
 
 .nav-button {
@@ -248,7 +253,11 @@ select:focus {
 
 .left-materials {
   display: grid;
+  flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 6px;
+  min-height: 0;
+  overflow: hidden;
   border: 1px solid rgba(183, 123, 63, 0.32);
   background: rgba(0, 0, 0, 0.18);
   padding: 8px;
@@ -256,6 +265,12 @@ select:focus {
 
 .left-materials .panel-title {
   margin-bottom: 0;
+}
+
+.left-materials .mini-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .left-materials .editable-row {

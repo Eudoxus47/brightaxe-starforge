@@ -221,11 +221,14 @@ describe("staged monthly resolution", () => {
   it("distinguishes inventory material variants for display", () => {
     const steelBreastplate = initialCampaignState.inventory.find((stock) => stock.id === "breastplate-mw");
     const mithrilBreastplate = initialCampaignState.inventory.find((stock) => stock.id === "mithril-breastplate");
+    const battleaxe = initialCampaignState.inventory.find((stock) => stock.id === "battleaxe-mw");
 
     expect(steelBreastplate && inventoryItemDisplayName(steelBreastplate.item)).toBe("Steel Breastplate (MW)");
     expect(mithrilBreastplate && inventoryItemDisplayName(mithrilBreastplate.item)).toBe("Mithril Breastplate");
     expect(mithrilBreastplate && itemPrimaryMaterialLabel(mithrilBreastplate.item)).toBe("Mithril");
     expect(steelBreastplate && itemRecipeSummary(steelBreastplate.item)).toContain("30 lb Steel");
+    expect(battleaxe?.item.category).toBe("weaponsmithing");
+    expect(battleaxe?.target).toBe(2);
   });
 
   it("seeds and normalizes standard smithing metals", () => {
@@ -248,6 +251,9 @@ describe("staged monthly resolution", () => {
     expect(normalized?.materials.Bronze.lbs).toBe(0);
     expect(normalized?.materials["Cold Iron"].gpPerLb).toBe(2);
     expect(normalized?.materials.Platinum.gpPerLb).toBe(500);
+    expect(normalized?.inventory.find((stock) => stock.id === "breastplate-mw")?.target).toBe(5);
+    expect(normalized?.inventory.find((stock) => stock.id === "half-plate-mw")?.target).toBe(2);
+    expect(normalized?.inventory.find((stock) => stock.id === "dagger-mw")?.target).toBe(4);
   });
 
   it("validates over-allocated commission hours", () => {

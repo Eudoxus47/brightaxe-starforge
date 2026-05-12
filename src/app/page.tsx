@@ -1522,7 +1522,7 @@ function ForgeInventoryBand({
       <div className="inventory-header">
         <PanelTitle icon={Shield} title="Forge Inventory" />
         <div className="production-targets">
-          <strong>Production Targets</strong>
+          <strong>Dwarvencraft Armor Targets</strong>
           <span>{productionPreview.length ? productionPreview.join(" | ") : "All target stock is filled."}</span>
         </div>
       </div>
@@ -1544,13 +1544,14 @@ function InventoryRow({
 }) {
   const Icon = stock.item.category === "weaponsmithing" ? Swords : Shield;
   const deficit = Math.max(0, stock.target - stock.quantity);
+  const qualityGoal = stock.item.category === "weaponsmithing" ? "Masterwork" : "Dwarvencraft";
 
   return (
     <article className={`inventory-row ${deficit > 0 ? "needs-stock" : ""}`}>
       <Icon className="size-4" />
       <div>
         <strong>{inventoryItemDisplayName(stock.item)}</strong>
-        <span>{stock.item.category} | {itemRecipeSummary(stock.item)}</span>
+        <span>{qualityGoal} goal | {stock.item.category} | {itemRecipeSummary(stock.item)}</span>
       </div>
       <em>{itemPrimaryMaterialLabel(stock.item)}</em>
       <label>

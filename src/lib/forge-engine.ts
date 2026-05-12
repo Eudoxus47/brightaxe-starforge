@@ -2159,6 +2159,79 @@ function normalizeMaterialInventory(materials: MaterialInventory): MaterialInven
   ) as MaterialInventory;
 }
 
+function defaultInventoryArmor(
+  name: string,
+  basePriceGp: number,
+  materialRecipe: ForgeItem["materialRecipe"],
+  options: Partial<ForgeItem> = {},
+): ForgeItem {
+  return {
+    name,
+    category: "armorsmithing",
+    complexity: "complex",
+    basePriceGp,
+    masterwork: true,
+    materialRecipe,
+    ...options,
+  };
+}
+
+function defaultInventoryWeapon(
+  name: string,
+  basePriceGp: number,
+  materialRecipe: ForgeItem["materialRecipe"],
+  options: Partial<ForgeItem> = {},
+): ForgeItem {
+  return {
+    name,
+    category: "weaponsmithing",
+    complexity: "moderate",
+    basePriceGp,
+    masterwork: true,
+    materialRecipe,
+    ...options,
+  };
+}
+
+const inventoryTargetFloors: Record<string, number> = {
+  "scale-mail-mw": 3,
+  "breastplate-mw": 5,
+  "chain-shirt-mw": 5,
+  "mithril-chain-shirt": 2,
+  "mithril-breastplate": 2,
+  "tower-shield": 3,
+  "heavy-steel-shield": 5,
+  "light-steel-shield": 5,
+  buckler: 8,
+  "full-plate-mw": 2,
+  "half-plate-mw": 2,
+  "battleaxe-mw": 2,
+  "warhammer-mw": 2,
+  "longsword-mw": 2,
+  "dagger-mw": 4,
+};
+
+function inventoryBackfillRows(): InventoryItem[] {
+  return [
+    { id: "half-plate-mw", item: defaultInventoryArmor("Half-Plate (MW)", 600, { Steel: 42 }), quantity: 0, target: 2 },
+    { id: "battleaxe-mw", item: defaultInventoryWeapon("Battleaxe (MW)", 310, { Steel: 8 }), quantity: 0, target: 2 },
+    { id: "warhammer-mw", item: defaultInventoryWeapon("Warhammer (MW)", 312, { Steel: 8 }), quantity: 0, target: 2 },
+    { id: "longsword-mw", item: defaultInventoryWeapon("Longsword (MW)", 315, { Steel: 6 }), quantity: 0, target: 2 },
+    { id: "dagger-mw", item: defaultInventoryWeapon("Dagger (MW)", 302, { Steel: 2 }), quantity: 0, target: 4 },
+  ];
+}
+
+function normalizeInventoryTargets(inventory: InventoryItem[]): InventoryItem[] {
+  const byId = new Set(inventory.map((stock) => stock.id));
+  return [
+    ...inventory.map((stock) => ({
+      ...stock,
+      target: Math.max(stock.target, inventoryTargetFloors[stock.id] ?? stock.target),
+    })),
+    ...inventoryBackfillRows().filter((stock) => !byId.has(stock.id)),
+  ];
+}
+
 function priorityFromLegacy(priority: "High" | "Medium" | "Low"): Priority {
   if (priority === "High") return "high";
   if (priority === "Low") return "low";
@@ -2257,6 +2330,7 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
   const shopProfitBaselineGp = state.profile.shopProfitBaselineGp === 2000 ? 1700 : state.profile.shopProfitBaselineGp;
   const toolForgeBonus = (state.profile.forgeBonus || 0) + (state.profile.toolBonus || 0);
   const materials = normalizeMaterialInventory(state.materials);
+  const inventory = normalizeInventoryTargets(state.inventory);
   const projects = state.projects.some((project) => project.id === "iron-doors-mermaid")
     ? state.projects
     : [...state.projects, createIronDoorsProject(materials)];
@@ -2264,6 +2338,7 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
   return {
     ...state,
     materials,
+    inventory,
     monthLabel: normalizeCampaignMonthLabel(state.monthLabel, state.currentMonth),
     profile: {
       ...state.profile,
