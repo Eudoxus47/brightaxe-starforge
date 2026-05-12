@@ -351,9 +351,7 @@ function LeftColumn({
 }) {
   return (
     <aside id="overview" className="identity-card ornate-panel">
-      <div className="portrait-frame">
-        <div className="portrait-beard" />
-      </div>
+      <div className="portrait-frame" role="img" aria-label="Portrait of Taark Brightaxe" />
       <div className="identity-copy">
         <h1>Brightaxe Starforge</h1>
         <strong>{state.profile.name}</strong>

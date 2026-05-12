@@ -152,19 +152,9 @@ select:focus {
   place-items: center;
   border: 1px solid rgba(183, 123, 63, 0.6);
   background:
-    radial-gradient(circle at 52% 32%, #704227 0 17%, transparent 18%),
-    linear-gradient(180deg, #2a1710, #0b0d0d);
-}
-
-.portrait-beard {
-  width: 42px;
-  height: 64px;
-  border-radius: 44% 44% 35% 35%;
-  background:
-    radial-gradient(circle at 37% 28%, #e0b36f 0 4px, transparent 5px),
-    radial-gradient(circle at 63% 28%, #e0b36f 0 4px, transparent 5px),
-    radial-gradient(circle at 50% 34%, #9c5530 0 19px, transparent 20px),
-    linear-gradient(180deg, #5b2d1e 0 36%, #33170f 37% 100%);
+    linear-gradient(180deg, rgba(255, 203, 128, 0.16), rgba(0, 0, 0, 0.18)),
+    url("/taark-brightaxe-portrait.png") 50% 34% / 172% auto no-repeat,
+    #090909;
   box-shadow: 0 0 28px rgba(215, 95, 50, 0.22);
 }
 
