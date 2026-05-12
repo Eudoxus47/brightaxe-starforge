@@ -31,6 +31,21 @@ const weapon = (
   ...options,
 });
 
+const blacksmithing = (
+  name: string,
+  basePriceGp: number,
+  materialRecipe: ForgeItem["materialRecipe"],
+  options: Partial<ForgeItem> = {},
+): ForgeItem => ({
+  name,
+  category: "blacksmithing",
+  complexity: "complex",
+  basePriceGp,
+  masterwork: false,
+  materialRecipe,
+  ...options,
+});
+
 function recipeCost(materials: MaterialInventory, recipe: ForgeItem["materialRecipe"]): number {
   return (Object.entries(recipe) as Array<[MaterialName, number]>).reduce((total, [material, lbs]) => {
     if (lbs === undefined) return total;
@@ -134,6 +149,17 @@ const projects = [
     payoutMode: "no_payment",
     kind: "prestige_commission",
   }),
+  project(materials, {
+    id: "iron-doors-mermaid",
+    client: "The Mermaid",
+    item: blacksmithing("Reinforced Iron Doors", 900, { Iron: 160, Steel: 20 }),
+    priority: "medium",
+    trueContractValue: 1400,
+    prestige: 0,
+    notes: "Heavy iron door commission for the tavern/forge entryways.",
+    resolutionMode: "fixedHours",
+    hoursInvested: 0,
+  }),
 ];
 
 export const initialCampaignState: CampaignState = {
@@ -146,9 +172,9 @@ export const initialCampaignState: CampaignState = {
     reputation: 14,
     maxReputation: 20,
     skills: {
-      armorsmithing: 28,
-      weaponsmithing: 19,
-      blacksmithing: 14,
+      armorsmithing: 31,
+      weaponsmithing: 8,
+      blacksmithing: 3,
     },
     forgeQuality: "Masterwork",
     toolQuality: "Masterwork",
@@ -183,6 +209,7 @@ export const initialCampaignState: CampaignState = {
       "basenhack-full-plate": 160,
       "fairstream-breastplate": 110,
       "purple-worm-tooth": 80,
+      "iron-doors-mermaid": 60,
     },
     genericInventory: 80,
     repairs: 40,

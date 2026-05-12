@@ -1070,7 +1070,7 @@ function LedgerStage({
         <StatRow label="Shop" value={`${report.genericShopProfit.toLocaleString()} gp`} />
         <StatRow label="Rep" value={`${report.startingReputation} -> ${report.endingReputation}`} />
       </div>
-      <MiniList title="Projects" rows={report.projectReports.map((project) => `${project.name}: ${project.hoursAfter}/${project.requiredHours}h, ${project.quality}, ${project.completedThisMonth ? "complete" : "open"}`)} />
+      <MiniList title="Projects" rows={report.projectReports.map((project) => `${project.name}: ${project.hoursAfter}/${project.requiredHours}h, craft ${project.craftingTotal} vs DC ${project.craftDc}, ${project.quality}, ${project.completedThisMonth ? "complete" : "open"}`)} />
       <MiniList title="Materials" rows={(Object.keys(report.materialsBefore) as MaterialName[]).map((material) => `${material}: ${report.materialsBefore[material].lbs} lbs -> ${report.materialsAfter[material].lbs} lbs`)} />
       <MiniList title="Inventory" rows={[...report.itemsProduced.map((item) => `Produced ${item.quantity} ${item.itemName}`), ...report.itemsSold.map((item) => `Sold ${item.quantity} ${item.itemName} (${item.gp} gp)`), ...report.targetStockDeficitsRemaining.map((item) => `${item.itemName} deficit ${item.deficit}`)]} />
       <MiniList title="Event Log" rows={report.eventLog} />
@@ -1297,7 +1297,7 @@ function monthlyReportMarkdown(simulation: MonthlyResolutionSimulation) {
     `Jordy: ${report.jordyTrainingHours}h`,
     "",
     "## Projects",
-    ...report.projectReports.map((project) => `- ${project.name}: ${project.hoursAfter}/${project.requiredHours}h, ${project.quality}, ${project.completedThisMonth ? "completed" : "in progress"}`),
+    ...report.projectReports.map((project) => `- ${project.name}: ${project.hoursAfter}/${project.requiredHours}h, craft ${project.craftingTotal} vs DC ${project.craftDc}, ${project.quality}, ${project.completedThisMonth ? "completed" : "in progress"}`),
     "",
     "## Materials",
     ...(Object.keys(report.materialsBefore) as MaterialName[]).map((material) => `- ${material}: ${report.materialsBefore[material].lbs} lbs -> ${report.materialsAfter[material].lbs} lbs`),
@@ -1542,7 +1542,11 @@ function InfoPopup({
             : panel === "events"
               ? ["Events now resolve inside the monthly event popup.", "Use Monthly Resolution to enter table d20s and walk through outcomes."]
               : panel === "upgrades"
-                ? [`Forge: ${state.profile.forgeQuality}`, `Tools: ${state.profile.toolQuality}`, `Bonuses: +${state.profile.forgeBonus + state.profile.toolBonus}`]
+                ? [
+                    `Armor: +${state.profile.skills.armorsmithing + state.profile.forgeBonus + state.profile.toolBonus}`,
+                    `Weapons: +${state.profile.skills.weaponsmithing + state.profile.forgeBonus + state.profile.toolBonus}`,
+                    `Blacksmithing: +${state.profile.skills.blacksmithing + state.profile.forgeBonus + state.profile.toolBonus}`,
+                  ]
                 : panel === "visitors"
                   ? eventActors.map((actor) => `${actor}: event roll during resolution`)
                   : [`${state.profile.name}`, state.profile.title, `Reputation ${state.profile.reputation}/${state.profile.maxReputation}`];

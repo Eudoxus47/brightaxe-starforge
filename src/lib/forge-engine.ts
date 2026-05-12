@@ -18,6 +18,8 @@ import type {
   MonthlyResolutionReport,
   MonthlyResolutionSimulation,
   MonthlyEvent,
+  MonthlyEventEffect,
+  MonthlyEventTarget,
   Outcome,
   Priority,
   ProjectEconomicMode,
@@ -542,70 +544,264 @@ export const eventActors: EventActor[] = [
   "City",
 ];
 
-const actorEffectProfiles: Record<
-  EventActor,
-  {
-    titleGood: string;
-    titleBad: string;
-    hours?: number;
-    sales?: number;
-    materialCost?: number;
-    materialWaste?: number;
-    reputation?: number;
-    craft?: number;
-  }
-> = {
+type EventRollBand = MonthlyResolutionSimulation["events"][number]["band"];
+type EventMagnitude = "none" | "tiny" | "minor" | "moderate" | "major" | "extreme";
+
+interface EventScale {
+  hours: Record<Exclude<EventMagnitude, "none">, number>;
+  money: Record<Exclude<EventMagnitude, "none">, number>;
+  volatility: Record<Exclude<EventMagnitude, "none">, number>;
+}
+
+interface ActorEventProfile {
+  target: MonthlyEventTarget;
+  scaleMultiplier?: number;
+  titles: Record<EventRollBand, string>;
+  flavor: Record<EventRollBand, string>;
+  effects: Record<EventRollBand, { hours?: EventMagnitude; money?: EventMagnitude; volatility?: EventMagnitude }>;
+}
+
+const actorEffectProfiles: Record<EventActor, ActorEventProfile> = {
   Tyrande: {
-    titleGood: "Tyrande Opens Noble Doors",
-    titleBad: "Tyrande's Timetable Tightens",
-    hours: -18,
-    sales: 260,
-    reputation: 1,
+    target: "commission",
+    titles: {
+      catastrophic: "Tyrande's Noble Tangle Snarls",
+      bad: "Tyrande's Timetable Tightens",
+      setback: "Tyrande Brings Expensive Ambiguity",
+      neutral: "Tyrande's Letter Creates Murmurs",
+      good: "Tyrande Opens Noble Doors",
+      strong_good: "Tyrande Secures a Serious Patron",
+      exceptional: "Tyrande Makes the Month Dangerous and Lucrative",
+    },
+    flavor: {
+      catastrophic: "A noble obligation lands hard on the forge with too many names and too little time.",
+      bad: "The opportunity is real, but it devours attention before it pays.",
+      setback: "Courtiers hover around the commission bench and turn certainty into ceremony.",
+      neutral: "A polished introduction raises eyebrows without moving the books much.",
+      good: "A wealthy patron begins circling the commission work.",
+      strong_good: "Tyrande turns etiquette into a better-paying commission opening.",
+      exceptional: "The right noble hears the right rumor at exactly the wrong, profitable moment.",
+    },
+    effects: {
+      catastrophic: { hours: "major", volatility: "major" },
+      bad: { hours: "moderate", volatility: "moderate" },
+      setback: { hours: "minor", volatility: "minor" },
+      neutral: { volatility: "tiny" },
+      good: { money: "moderate", volatility: "moderate" },
+      strong_good: { money: "major", volatility: "major" },
+      exceptional: { money: "extreme", volatility: "extreme" },
+    },
   },
   Riff: {
-    titleGood: "Riff Finds a Procurement Angle",
-    titleBad: "Riff's Lead Goes Sideways",
-    sales: 140,
-    materialCost: -8,
-    materialWaste: -4,
+    target: "materials",
+    titles: {
+      catastrophic: "Riff's Supplier Was Trouble",
+      bad: "Riff's Lead Goes Sideways",
+      setback: "Riff Finds a Risky Bargain",
+      neutral: "Riff Hears Something Useful Later",
+      good: "Riff Finds a Procurement Angle",
+      strong_good: "Riff Beats the Markup",
+      exceptional: "Riff's Deal Is Clean After All",
+    },
+    flavor: {
+      catastrophic: "The cheap metal costs time, worry, and a few hard questions.",
+      bad: "A promising lead becomes an expensive chase.",
+      setback: "The bargain is real enough, but no one likes how it arrived.",
+      neutral: "Riff's rumor goes into the ledger as future caution.",
+      good: "A caravan's spare ingots appear before guild markup does.",
+      strong_good: "Riff turns market timing into a practical material advantage.",
+      exceptional: "The deal is both cheap and honest, which feels suspiciously luxurious.",
+    },
+    effects: {
+      catastrophic: { money: "major", volatility: "major" },
+      bad: { money: "moderate", volatility: "moderate" },
+      setback: { money: "minor", volatility: "minor" },
+      neutral: { money: "tiny" },
+      good: { money: "moderate", volatility: "minor" },
+      strong_good: { money: "major" },
+      exceptional: { money: "major", volatility: "moderate" },
+    },
   },
   Stigandur: {
-    titleGood: "Stigandur Sends Steady Walk-Ins",
-    titleBad: "Stigandur Costs Taark a Morning",
-    hours: -20,
-    sales: 220,
+    target: "shop",
+    titles: {
+      catastrophic: "Stigandur Starts a Costly Night",
+      bad: "Stigandur Costs Taark a Morning",
+      setback: "Dockside Toasts Run Long",
+      neutral: "Warriors Talk More Than They Buy",
+      good: "Stigandur Sends Steady Walk-Ins",
+      strong_good: "Stigandur's Crowd Needs Repairs",
+      exceptional: "Stigandur Fills the Shop With Armed Customers",
+    },
+    flavor: {
+      catastrophic: "The tavern roars until the forge pays for it in lost time.",
+      bad: "A fine drinking story is less fine at dawn.",
+      setback: "The Mermaid sings late, and the next morning starts crooked.",
+      neutral: "The boasting is loud; the ledger barely notices.",
+      good: "Fighters come downstairs with bent straps and coin.",
+      strong_good: "A rough crowd becomes a useful repair rush.",
+      exceptional: "Every warrior in the room suddenly remembers something broken.",
+    },
+    effects: {
+      catastrophic: { hours: "major", volatility: "major" },
+      bad: { hours: "moderate", volatility: "moderate" },
+      setback: { hours: "minor", volatility: "minor" },
+      neutral: { volatility: "tiny" },
+      good: { money: "moderate", volatility: "minor" },
+      strong_good: { money: "major" },
+      exceptional: { money: "major", volatility: "moderate" },
+    },
   },
   Galenthyr: {
-    titleGood: "Galenthyr Sings the Forge's Name",
-    titleBad: "Galenthyr Draws a Distracted Crowd",
-    sales: 360,
-    reputation: 1,
+    target: "shop",
+    titles: {
+      catastrophic: "Galenthyr Draws the Wrong Crowd",
+      bad: "Galenthyr Distracts the Floor",
+      setback: "The Audience Blocks the Benches",
+      neutral: "A Song Carries Taark's Name",
+      good: "Galenthyr Sings the Forge's Name",
+      strong_good: "Galenthyr Brings Buyers Downstairs",
+      exceptional: "Galenthyr Turns Applause Into Sales",
+    },
+    flavor: {
+      catastrophic: "The room fills, but the useful customers are not the ones closest to the counter.",
+      bad: "The music is excellent; the workflow is not.",
+      setback: "Curious listeners crowd the shop more than the ledger.",
+      neutral: "The name Brightaxe lands softly in the right ears.",
+      good: "Customers linger long enough to buy.",
+      strong_good: "A catchy verse becomes a small flood of shop orders.",
+      exceptional: "The performance makes Brightaxe goods feel like the obvious souvenir.",
+    },
+    effects: {
+      catastrophic: { hours: "moderate", volatility: "major" },
+      bad: { hours: "minor", volatility: "moderate" },
+      setback: { volatility: "minor" },
+      neutral: { money: "tiny" },
+      good: { money: "moderate" },
+      strong_good: { money: "major" },
+      exceptional: { money: "major", volatility: "moderate" },
+    },
   },
   Valthen: {
-    titleGood: "Valthen Keeps the Benches Moving",
-    titleBad: "Valthen's Help Needs Rework",
-    hours: 42,
-    craft: 1,
+    target: "commission",
+    titles: {
+      catastrophic: "Valthen's Help Needs Rework",
+      bad: "Valthen Slows the Bench",
+      setback: "Valthen Finds a Process Snag",
+      neutral: "Valthen Keeps Quiet Count",
+      good: "Valthen Keeps the Benches Moving",
+      strong_good: "Valthen Stabilizes the Commission Work",
+      exceptional: "Valthen Makes the Forge Feel Inevitable",
+    },
+    flavor: {
+      catastrophic: "Well-meant help reveals a mistake that has to be unwound.",
+      bad: "The careful method takes longer than the month wanted.",
+      setback: "A small correction saves worse trouble later.",
+      neutral: "The rhythm stays steady, if not transformed.",
+      good: "Fittings, straps, and edge cases line up cleanly.",
+      strong_good: "A second disciplined pair of hands makes the commission bench reliable.",
+      exceptional: "The forge finds a calm pace that eats through work without drama.",
+    },
+    effects: {
+      catastrophic: { hours: "major", volatility: "major" },
+      bad: { hours: "moderate", volatility: "moderate" },
+      setback: { hours: "minor", volatility: "minor" },
+      neutral: { volatility: "tiny" },
+      good: { hours: "moderate", volatility: "moderate" },
+      strong_good: { hours: "major", volatility: "major" },
+      exceptional: { hours: "major", volatility: "major" },
+    },
   },
   Jordy: {
-    titleGood: "Jordy Learns Faster Than Expected",
-    titleBad: "Jordy Sorts Everything Twice",
-    hours: 18,
-    reputation: 1,
+    target: "inventory",
+    scaleMultiplier: 0.55,
+    titles: {
+      catastrophic: "Jordy Misfiles the Parts",
+      bad: "Jordy Sorts Everything Twice",
+      setback: "Jordy Learns the Slow Way",
+      neutral: "Jordy Asks Six Questions",
+      good: "Jordy Learns Faster Than Expected",
+      strong_good: "Jordy Handles the Little Things",
+      exceptional: "Jordy Has a Real Apprentice Day",
+    },
+    flavor: {
+      catastrophic: "A confident mistake turns into a patient re-sort.",
+      bad: "The lesson sticks, eventually.",
+      setback: "A small error costs more attention than it should.",
+      neutral: "The questions are dangerous, but useful.",
+      good: "Fetching, sweeping, and sorting start to look like actual help.",
+      strong_good: "Jordy clears small work from Taark's path.",
+      exceptional: "For one bright day, Jordy is exactly where he should be.",
+    },
+    effects: {
+      catastrophic: { hours: "major", volatility: "major" },
+      bad: { hours: "moderate", volatility: "moderate" },
+      setback: { hours: "minor", volatility: "minor" },
+      neutral: { volatility: "tiny" },
+      good: { hours: "moderate", volatility: "moderate" },
+      strong_good: { hours: "major", volatility: "moderate" },
+      exceptional: { hours: "major", volatility: "major" },
+    },
   },
   Guild: {
-    titleGood: "The Guild Sends Useful Attention",
-    titleBad: "The Guild Inspection Drags",
-    hours: -12,
-    sales: 300,
-    reputation: 1,
+    target: "global",
+    titles: {
+      catastrophic: "The Guild Buries the Month in Forms",
+      bad: "The Guild Inspection Drags",
+      setback: "Guild Paperwork Eats a Day",
+      neutral: "The Guild Files the Usual Notices",
+      good: "The Guild Sends Useful Attention",
+      strong_good: "The Guild Stabilizes the Order Book",
+      exceptional: "The Guild Referral Is Better Than Advertised",
+    },
+    flavor: {
+      catastrophic: "The structure is predictable, which is not the same thing as profitable.",
+      bad: "The rules reduce uncertainty by taking time and coin.",
+      setback: "A clerk wants a cleaner ledger before anyone gets clever.",
+      neutral: "Formalities pass through the shop with minor friction.",
+      good: "A careful referral comes with fewer surprises than usual.",
+      strong_good: "Guild structure makes the month less swingy and more bankable.",
+      exceptional: "A formal order arrives with clean terms and clean payment.",
+    },
+    effects: {
+      catastrophic: { hours: "major", money: "major", volatility: "major" },
+      bad: { hours: "moderate", money: "moderate", volatility: "moderate" },
+      setback: { hours: "minor", money: "minor", volatility: "minor" },
+      neutral: { volatility: "tiny" },
+      good: { money: "moderate", volatility: "moderate" },
+      strong_good: { money: "major", volatility: "major" },
+      exceptional: { money: "major", volatility: "major" },
+    },
   },
   City: {
-    titleGood: "Waterdeep Trade Surges",
-    titleBad: "Dock Ward Weather Bites",
-    hours: -16,
-    sales: 260,
-    materialCost: 4,
+    target: "global",
+    titles: {
+      catastrophic: "Waterdeep Turns Against the Ledger",
+      bad: "City Trade Slumps",
+      setback: "Dock Ward Weather Bites",
+      neutral: "Waterdeep Holds Its Breath",
+      good: "Waterdeep Trade Surges",
+      strong_good: "The City Wants Steel",
+      exceptional: "The City of Splendors Opens Its Purse",
+    },
+    flavor: {
+      catastrophic: "Bad weather, bad timing, and bad rumors all arrive together.",
+      bad: "The market tightens where Taark wanted room.",
+      setback: "City conditions make a normal month less predictable.",
+      neutral: "The wider market moves around the forge without striking it directly.",
+      good: "Loaded wagons and anxious guards make steel feel sensible.",
+      strong_good: "Demand rises fast enough to improve the month and widen the swing.",
+      exceptional: "Waterdeep remembers that splendor often needs hinges, helms, and locks.",
+    },
+    effects: {
+      catastrophic: { money: "major", volatility: "major" },
+      bad: { money: "moderate", volatility: "moderate" },
+      setback: { money: "minor", volatility: "minor" },
+      neutral: { volatility: "tiny" },
+      good: { money: "moderate", volatility: "moderate" },
+      strong_good: { money: "major", volatility: "major" },
+      exceptional: { money: "major", volatility: "major" },
+    },
   },
 };
 
@@ -641,6 +837,104 @@ export function eventStrength(roll: number): number {
   return (roll - 10.5) / 9.5;
 }
 
+function eventRollBand(roll: number): EventRollBand {
+  if (roll === 1) return "catastrophic";
+  if (roll <= 4) return "bad";
+  if (roll <= 8) return "setback";
+  if (roll <= 12) return "neutral";
+  if (roll <= 16) return "good";
+  if (roll <= 19) return "strong_good";
+  return "exceptional";
+}
+
+function createEventScale(state?: CampaignState): EventScale {
+  const monthlyHours = state
+    ? state.profile.baseMonthlyHours + state.profile.ringOfSustenanceHours + 60
+    : 660;
+  const targetProfit = state?.profile.dmTargetProfitGp ?? 2000;
+  const volatility = state?.profile.dmTargetVolatilityGp ?? 1000;
+
+  return {
+    hours: {
+      tiny: Math.round(monthlyHours * 0.01),
+      minor: Math.round(monthlyHours * 0.02),
+      moderate: Math.round(monthlyHours * 0.05),
+      major: Math.round(monthlyHours * 0.08),
+      extreme: Math.round(monthlyHours * 0.12),
+    },
+    money: {
+      tiny: Math.round(targetProfit * 0.025),
+      minor: Math.round(targetProfit * 0.05),
+      moderate: Math.round(targetProfit * 0.1),
+      major: Math.round(targetProfit * 0.2),
+      extreme: Math.round(targetProfit * 0.3),
+    },
+    volatility: {
+      tiny: Math.round(volatility * 0.025),
+      minor: Math.round(volatility * 0.05),
+      moderate: Math.round(volatility * 0.1),
+      major: Math.round(volatility * 0.2),
+      extreme: Math.round(volatility * 0.3),
+    },
+  };
+}
+
+function scaledMagnitude(
+  scale: EventScale,
+  kind: "hours" | "money" | "volatility",
+  magnitude: EventMagnitude | undefined,
+  multiplier = 1,
+) {
+  if (!magnitude || magnitude === "none") return 0;
+  return Math.round(scale[kind][magnitude] * multiplier);
+}
+
+function eventSign(actor: EventActor, band: EventRollBand, kind: "hours" | "money" | "volatility") {
+  const positiveBand = band === "good" || band === "strong_good" || band === "exceptional";
+  const badBand = band === "catastrophic" || band === "bad" || band === "setback";
+
+  if (kind === "volatility") {
+    if (actor === "Valthen" || actor === "Jordy") return positiveBand ? -1 : 1;
+    if (actor === "Guild") return -1;
+    if (actor === "Riff" && band === "exceptional") return -1;
+    return 1;
+  }
+
+  if (kind === "hours") {
+    if (actor === "Valthen" || actor === "Jordy") return positiveBand ? 1 : -1;
+    return badBand ? -1 : 1;
+  }
+
+  if (actor === "Guild" && badBand) return -1;
+  if (actor === "City" && badBand) return -1;
+  if (actor === "Riff" && badBand) return -1;
+  return positiveBand ? 1 : badBand ? -1 : 1;
+}
+
+function aggregateEventEffects(events: MonthlyResolutionSimulation["events"]) {
+  const empty = { commission: 0, shop: 0, inventory: 0, materials: 0, global: 0 } satisfies Record<MonthlyEventTarget, number>;
+  const totals = {
+    hours: { ...empty },
+    money: { ...empty },
+    volatility: { ...empty },
+  };
+
+  for (const event of events) {
+    totals.hours[event.effects.target] += event.effects.hoursDelta;
+    totals.money[event.effects.target] += event.effects.moneyDelta;
+    totals.volatility[event.effects.target] += event.effects.volatilityDelta;
+  }
+
+  return {
+    hoursByTarget: totals.hours,
+    moneyByTarget: totals.money,
+    volatilityByTarget: totals.volatility,
+    totalHours: Object.values(totals.hours).reduce((total, value) => total + value, 0),
+    totalMoney: Object.values(totals.money).reduce((total, value) => total + value, 0),
+    totalVolatility: Object.values(totals.volatility).reduce((total, value) => total + value, 0),
+  };
+}
+
 export function craftQualityFromRoll(roll: number): CraftQuality {
   if (roll === 20) return "natural_20";
   if (roll >= 17) return "exceptional";
@@ -659,30 +953,54 @@ export function progressEfficiencyFromRoll(roll: number): number {
   return 1.5;
 }
 
-export function createEventResolution(actor: EventActor, roll: number): MonthlyResolutionSimulation["events"][number] {
+export function createEventResolution(actor: EventActor, roll: number, state?: CampaignState): MonthlyResolutionSimulation["events"][number] {
   const normalizedRoll = clampD20(roll) ?? 10;
   const strength = eventStrength(normalizedRoll);
   const profile = actorEffectProfiles[actor];
-  const positive = normalizedRoll >= 11;
-  const effects = {
-    hoursModifier: Math.round((profile.hours ?? 0) * strength),
-    genericSalesModifier: Math.round((profile.sales ?? 0) * strength),
-    materialCostModifier: Math.round((profile.materialCost ?? 0) * strength),
-    materialWasteModifier: Math.round((profile.materialWaste ?? 0) * strength),
-    reputationModifier: Math.abs(strength) >= 0.8 ? Math.sign(strength) * Math.min(1, profile.reputation ?? 0) : 0,
-    craftRollModifier: Math.round((profile.craft ?? 0) * strength),
+  const band = eventRollBand(normalizedRoll);
+  const scale = createEventScale(state);
+  const multiplier = profile.scaleMultiplier ?? 1;
+  const magnitudes = profile.effects[band];
+  const effects: MonthlyEventEffect = {
+    hoursDelta: scaledMagnitude(scale, "hours", magnitudes.hours, multiplier) * eventSign(actor, band, "hours"),
+    moneyDelta: scaledMagnitude(scale, "money", magnitudes.money, multiplier) * eventSign(actor, band, "money"),
+    volatilityDelta: scaledMagnitude(scale, "volatility", magnitudes.volatility, multiplier) * eventSign(actor, band, "volatility"),
+    target: profile.target,
   };
 
   return {
     actor,
     roll: normalizedRoll,
     strength,
-    title: positive ? profile.titleGood : profile.titleBad,
-    flavorText: positive
-      ? `${actor} nudges the month in Taark's favor.`
-      : `${actor}'s thread in the month adds a complication.`,
+    band,
+    title: profile.titles[band],
+    flavorText: profile.flavor[band],
     effects,
   };
+}
+
+function craftBonusForProject(state: CampaignState, project: ForgeProject) {
+  return state.profile.skills[project.item.category] + state.profile.forgeBonus + state.profile.toolBonus;
+}
+
+function craftQualityFromTotal(roll: number, total: number, dc: number): CraftQuality {
+  if (roll === 20) return "natural_20";
+  const margin = total - dc;
+  if (margin >= 15) return "exceptional";
+  if (margin >= 10) return "excellent";
+  if (margin >= 0) return "success";
+  if (margin >= -5) return "minor_failure";
+  return "bad_failure";
+}
+
+function progressEfficiencyFromCraft(roll: number, total: number, dc: number): number {
+  if (roll === 20) return 1.5;
+  const margin = total - dc;
+  if (margin >= 15) return 1.35;
+  if (margin >= 10) return 1.2;
+  if (margin >= 0) return 1;
+  if (margin >= -5) return 0.75;
+  return 0.5;
 }
 
 export function createResolutionDraft(state: CampaignState): MonthlyResolutionDraft {
@@ -760,16 +1078,17 @@ function projectReputationChange(project: ForgeProject, quality: CraftQuality): 
 function targetedShopDemand(
   state: CampaignState,
   effective: ReturnType<typeof effectiveAllocation>,
-  eventSalesModifier: number,
+  eventShopMoneyModifier: number,
   shopRoll: number,
   materialWaste: number,
+  volatilityModifier = 0,
 ): number {
   const target = state.profile.dmTargetProfitGp;
-  const sigma = Math.max(350, state.profile.dmTargetVolatilityGp);
+  const sigma = Math.max(150, state.profile.dmTargetVolatilityGp + volatilityModifier);
   const rollSwing = Math.round((shopRoll - 10.5) * (sigma / 9.5));
   const shelfHoursModifier = Math.round((effective.genericShopWorkHours - 80) * 3.5);
   const repairProfit = Math.round(effective.repairsWalkinsHours * 7);
-  const eventPressure = Math.round(eventSalesModifier * 0.35);
+  const eventPressure = Math.round(eventShopMoneyModifier * 0.2);
   const desiredNonCommissionNet = target + rollSwing + shelfHoursModifier + eventPressure - Math.max(0, materialWaste);
 
   return Math.max(0, desiredNonCommissionNet + state.profile.genericShopCostsGp - repairProfit);
@@ -813,11 +1132,22 @@ export function validateResolutionPlan(state: CampaignState, draft: MonthlyResol
   return warnings;
 }
 
-function effectiveAllocation(draft: MonthlyResolutionDraft, eventHourModifier: number) {
-  const available = Math.max(0, recomputedTotalHours(draft) + eventHourModifier);
-  const requested = plannedWorkTotal(draft);
+function effectiveAllocation(draft: MonthlyResolutionDraft, eventHours: ReturnType<typeof aggregateEventEffects>["hoursByTarget"] | number) {
+  const hoursByTarget =
+    typeof eventHours === "number"
+      ? { commission: 0, shop: 0, inventory: 0, materials: 0, global: eventHours }
+      : eventHours;
+  const totalEventHours = Object.values(hoursByTarget).reduce((total, value) => total + value, 0);
+  const available = Math.max(0, recomputedTotalHours(draft) + totalEventHours);
+  const commissionTarget = Math.max(0, draft.allocation.commissionWorkHours + hoursByTarget.commission);
+  const genericTarget = Math.max(0, draft.allocation.genericShopWorkHours + hoursByTarget.inventory + hoursByTarget.materials);
+  const repairTarget = Math.max(0, draft.allocation.repairsWalkinsHours + hoursByTarget.shop);
+  const jordyTarget = Math.max(0, draft.allocation.jordyTrainingHours);
+  const requested = commissionTarget + genericTarget + repairTarget + jordyTarget;
   const scale = requested > available && requested > 0 ? available / requested : 1;
-  const projectScale = draft.allocation.commissionWorkHours > 0 ? Math.min(1, scale) : 1;
+  const selectedProjectHours = selectedPlans(draft).reduce((total, plan) => total + Math.max(0, plan.allocatedHours), 0);
+  const commissionRatio = selectedProjectHours > 0 ? commissionTarget / selectedProjectHours : 1;
+  const projectScale = Math.min(1.5, commissionRatio * scale);
   const projectHours = Object.fromEntries(
     selectedPlans(draft).map((plan) => [plan.projectId, Math.floor(Math.max(0, plan.allocatedHours) * projectScale)]),
   );
@@ -826,10 +1156,10 @@ function effectiveAllocation(draft: MonthlyResolutionDraft, eventHourModifier: n
     available,
     scale,
     unusedHours: Math.max(0, available - requested),
-    commissionWorkHours: Math.floor(Math.max(0, draft.allocation.commissionWorkHours) * scale),
-    genericShopWorkHours: Math.floor(Math.max(0, draft.allocation.genericShopWorkHours) * scale),
-    repairsWalkinsHours: Math.floor(Math.max(0, draft.allocation.repairsWalkinsHours) * scale),
-    jordyTrainingHours: Math.floor(Math.max(0, draft.allocation.jordyTrainingHours) * scale),
+    commissionWorkHours: Math.floor(commissionTarget * scale),
+    genericShopWorkHours: Math.floor(genericTarget * scale),
+    repairsWalkinsHours: Math.floor(repairTarget * scale),
+    jordyTrainingHours: Math.floor(jordyTarget * scale),
     projectHours,
   };
 }
@@ -944,10 +1274,9 @@ export function forecastMonthlyPlan(state: CampaignState, draft: MonthlyResoluti
   let negativeCount = 0;
 
   for (let index = 0; index < count; index += 1) {
-    const actorEvents = eventActors.map((actor) => createEventResolution(actor, Math.floor(rng() * 20) + 1));
-    const eventHours = actorEvents.reduce((total, event) => total + (event.effects.hoursModifier ?? 0), 0);
-    const eventSales = actorEvents.reduce((total, event) => total + (event.effects.genericSalesModifier ?? 0), 0);
-    const effective = effectiveAllocation(draft, eventHours);
+    const actorEvents = eventActors.map((actor) => createEventResolution(actor, Math.floor(rng() * 20) + 1, state));
+    const eventTotals = aggregateEventEffects(actorEvents);
+    const effective = effectiveAllocation(draft, eventTotals.hoursByTarget);
     const genericRoll = Math.floor(rng() * 20) + 1;
     const shopRoll = Math.floor(rng() * 20) + 1;
     const materialRoll = Math.floor(rng() * 20) + 1;
@@ -960,9 +1289,10 @@ export function forecastMonthlyPlan(state: CampaignState, draft: MonthlyResoluti
       const project = state.projects.find((candidate) => candidate.id === plan.projectId);
       if (!project) continue;
       const roll = Math.floor(rng() * 20) + 1;
-      const quality = craftQualityFromRoll(roll);
       const requirements = getProjectRequirements(project);
-      const progressAdded = Math.floor((effective.projectHours[project.id] ?? 0) * progressEfficiencyFromRoll(roll));
+      const craftTotal = roll + craftBonusForProject(state, project);
+      const quality = craftQualityFromTotal(roll, craftTotal, requirements.dc);
+      const progressAdded = Math.floor((effective.projectHours[project.id] ?? 0) * progressEfficiencyFromCraft(roll, craftTotal, requirements.dc));
       const completed = project.hoursInvested + progressAdded >= requirements.hours;
       if (completed) {
         completionCounts[project.id] = (completionCounts[project.id] ?? 0) + 1;
@@ -982,19 +1312,25 @@ export function forecastMonthlyPlan(state: CampaignState, draft: MonthlyResoluti
     const production = produceInventory(nextInventory, nextMaterials, effective.genericShopWorkHours, progressEfficiencyFromRoll(genericRoll));
     nextInventory = production.inventory;
     nextMaterials = production.materials;
-    const materialWaste = materialRoll <= 4 ? Math.round(inventoryValueCapacity(nextInventory) * 0.02) : 0;
-    const demand = targetedShopDemand(state, effective, eventSales, shopRoll, materialWaste);
+    const eventShopMoney =
+      eventTotals.moneyByTarget.shop + eventTotals.moneyByTarget.inventory + eventTotals.moneyByTarget.global;
+    const eventCommissionMoney = eventTotals.moneyByTarget.commission;
+    const eventMaterialsMoney = eventTotals.moneyByTarget.materials;
+    const materialWasteBase = Math.round(inventoryValueCapacity(nextInventory) * 0.02);
+    const materialWaste = materialRoll <= 4 ? materialWasteBase : 0;
+    const demand = targetedShopDemand(state, effective, eventShopMoney, shopRoll, materialWaste, eventTotals.totalVolatility);
     const inventoryCapacity = inventoryValueCapacity(nextInventory);
     const sale = sellInventory(nextInventory, demand);
     const repairProfit = Math.round(effective.repairsWalkinsHours * 7);
-    const shopSales = sale.shopSales + ambientShopSales(sale.unmetDemand);
-    const monthTotal = commissionProfit + shopSales + repairProfit - state.profile.genericShopCostsGp - materialWaste;
+    const shopSales = sale.shopSales + ambientShopSales(sale.unmetDemand) + eventShopMoney;
+    const genericCosts = Math.max(0, state.profile.genericShopCostsGp + materialWaste - eventMaterialsMoney);
+    const monthTotal = commissionProfit + eventCommissionMoney + shopSales + repairProfit - genericCosts;
 
     if (materialShortage) shortageCount += 1;
     if (demand > inventoryCapacity) demandExceededCount += 1;
     if (monthTotal < 0) negativeCount += 1;
     totals.push(monthTotal);
-    commissionTotals.push(commissionProfit);
+    commissionTotals.push(commissionProfit + eventCommissionMoney);
     shopTotals.push(shopSales);
     repairTotals.push(repairProfit);
 
@@ -1082,27 +1418,25 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
   }
 
   const forecast = draft.forecast ?? forecastMonthlyPlan(state, draft);
-  const events = eventActors.map((actor) => createEventResolution(actor, draft.eventRolls[actor] ?? 10));
-  const eventHourModifier = events.reduce((total, event) => total + (event.effects.hoursModifier ?? 0), 0);
-  const eventSalesModifier = events.reduce((total, event) => total + (event.effects.genericSalesModifier ?? 0), 0);
-  const eventReputationModifier = events.reduce((total, event) => total + (event.effects.reputationModifier ?? 0), 0);
-  const materialCostModifierPct = events.reduce((total, event) => total + (event.effects.materialCostModifier ?? 0), 0);
-  const effective = effectiveAllocation(draft, eventHourModifier);
+  const events = eventActors.map((actor) => createEventResolution(actor, draft.eventRolls[actor] ?? 10, state));
+  const eventTotals = aggregateEventEffects(events);
+  const effective = effectiveAllocation(draft, eventTotals.hoursByTarget);
   const cards: ResolutionCard[] = [];
   const eventLog: string[] = [];
   let nextMaterials = cloneMaterials(state.materials);
   let nextInventory = state.inventory.map((stock) => ({ ...stock }));
   const projectReports: MonthlyResolutionReport["projectReports"] = [];
   let grossCommissionProjectValue = 0;
-  let recognizedCommissionProfit = 0;
+  let recognizedCommissionProfit = eventTotals.moneyByTarget.commission;
   let materialPurchasesLosses = 0;
-  let rawReputationChange = eventReputationModifier;
+  let rawReputationChange = 0;
 
   for (const event of events) {
     const effectText = [
-      event.effects.hoursModifier ? `${event.effects.hoursModifier > 0 ? "+" : ""}${event.effects.hoursModifier}h` : "",
-      event.effects.genericSalesModifier ? `${event.effects.genericSalesModifier > 0 ? "+" : ""}${event.effects.genericSalesModifier} gp sales pressure` : "",
-      event.effects.reputationModifier ? `${event.effects.reputationModifier > 0 ? "+" : ""}${event.effects.reputationModifier} reputation` : "",
+      event.effects.hoursDelta ? `${event.effects.hoursDelta > 0 ? "+" : ""}${event.effects.hoursDelta}h` : "",
+      event.effects.moneyDelta ? `${event.effects.moneyDelta > 0 ? "+" : ""}${event.effects.moneyDelta} gp` : "",
+      event.effects.volatilityDelta ? `${event.effects.volatilityDelta > 0 ? "+" : ""}${event.effects.volatilityDelta} volatility` : "",
+      `target: ${event.effects.target}`,
     ].filter(Boolean).join(", ") || "No major mechanical change.";
     cards.push({
       id: `event-${event.actor}`,
@@ -1112,7 +1446,7 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
       roll: event.roll,
       flavorText: event.flavorText,
       mechanicalEffectText: effectText,
-      effectTags: ["event"],
+      effectTags: ["event", event.effects.target, event.band],
     });
     eventLog.push(`${event.actor} (${event.roll}): ${event.title}. ${effectText}`);
   }
@@ -1131,10 +1465,11 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
     if (!plan || (project.status !== "queued" && project.status !== "in_progress")) return;
 
     const roll = draft.projectRolls.find((candidate) => candidate.projectId === project.id)?.roll ?? 10;
-    const quality = craftQualityFromRoll(roll);
     const requirements = getProjectRequirements(project);
+    const craftTotal = roll + craftBonusForProject(state, project);
+    const quality = craftQualityFromTotal(roll, craftTotal, requirements.dc);
     const hoursBefore = project.hoursInvested;
-    const hoursAdded = Math.floor((effective.projectHours[project.id] ?? 0) * progressEfficiencyFromRoll(roll));
+    const hoursAdded = Math.floor((effective.projectHours[project.id] ?? 0) * progressEfficiencyFromCraft(roll, craftTotal, requirements.dc));
     const hoursAfter = Math.min(requirements.hours, hoursBefore + hoursAdded);
     const completedThisMonth = hoursAfter >= requirements.hours;
     const report = calculateProjectFinancials(
@@ -1163,6 +1498,8 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
       requiredHours: requirements.hours,
       progressPercentage: Math.min(100, Math.round((hoursAfter / requirements.hours) * 100)),
       craftingRoll: roll,
+      craftingTotal: craftTotal,
+      craftDc: requirements.dc,
       quality,
       completedThisMonth,
       recognizedProfit: completedThisMonth ? report.netCashImpact : 0,
@@ -1178,10 +1515,10 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
       actorOrSystem: "Taark",
       roll,
       flavorText: completedThisMonth ? "The last hammer falls and the work is ready." : "The work advances, but the bench keeps its claim into next month.",
-      mechanicalEffectText: `${hoursBefore}h -> ${hoursAfter}h of ${requirements.hours}h; ${quality.replace("_", " ")}; ${completedThisMonth ? "completed" : "in progress"}.`,
+      mechanicalEffectText: `${hoursBefore}h -> ${hoursAfter}h of ${requirements.hours}h; craft ${roll}+${craftBonusForProject(state, project)}=${craftTotal} vs DC ${requirements.dc}; ${quality.replace("_", " ")}; ${completedThisMonth ? "completed" : "in progress"}.`,
       effectTags: ["project", quality],
     });
-    eventLog.push(`${project.name}: roll ${roll}, ${hoursAdded}h progress, ${completedThisMonth ? "completed" : "not complete"}.`);
+    eventLog.push(`${project.name}: roll ${roll}+${craftBonusForProject(state, project)}=${craftTotal} vs DC ${requirements.dc}, ${hoursAdded}h progress, ${completedThisMonth ? "completed" : "not complete"}.`);
 
   });
 
@@ -1204,13 +1541,20 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
   const shopRoll = draft.taarkRolls.shopSales ?? 10;
   const repairMiscProfit = Math.round(effective.repairsWalkinsHours * 7);
   const materialRoll = draft.taarkRolls.materialManagement ?? 10;
-  const materialAdjustment = Math.round(materialPurchasesLosses * (materialCostModifierPct / 100));
-  const materialWaste = materialRoll <= 4 ? Math.round(Math.max(100, materialPurchasesLosses) * 0.08) : materialRoll >= 17 ? -Math.round(Math.max(100, materialPurchasesLosses) * 0.04) : 0;
-  const genericShopCosts = Math.max(0, state.profile.genericShopCostsGp + materialAdjustment + Math.max(0, materialWaste));
-  const demand = targetedShopDemand(state, effective, eventSalesModifier, shopRoll, Math.max(0, materialWaste));
+  const eventShopMoney = eventTotals.moneyByTarget.shop + eventTotals.moneyByTarget.inventory + eventTotals.moneyByTarget.global;
+  const eventMaterialsMoney = eventTotals.moneyByTarget.materials;
+  const eventVolatility = eventTotals.totalVolatility;
+  const materialWaste =
+    materialRoll <= 4
+      ? Math.round(Math.max(100, materialPurchasesLosses) * 0.08)
+      : materialRoll >= 17
+        ? -Math.round(Math.max(100, materialPurchasesLosses) * 0.04)
+        : 0;
+  const genericShopCosts = Math.max(0, state.profile.genericShopCostsGp + Math.max(0, materialWaste) - eventMaterialsMoney);
+  const demand = targetedShopDemand(state, effective, eventShopMoney, shopRoll, Math.max(0, materialWaste), eventVolatility);
   const sold = sellInventory(nextInventory, demand);
   nextInventory = sold.inventory;
-  const genericShopProfit = sold.shopSales + ambientShopSales(sold.unmetDemand);
+  const genericShopProfit = sold.shopSales + ambientShopSales(sold.unmetDemand) + eventShopMoney;
   const totalNetProfit = recognizedCommissionProfit + genericShopProfit + repairMiscProfit - genericShopCosts;
   const reputationChange = boundedReputationChange(rawReputationChange);
   const endingReputation = Math.max(0, Math.min(state.profile.maxReputation, state.profile.reputation + reputationChange));
@@ -1230,7 +1574,7 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
     actorOrSystem: "Taark",
     roll: materialRoll,
     flavorText: "Rare ingots, offcuts, and tempering choices decide how costly the month feels.",
-    mechanicalEffectText: `${materialWaste >= 0 ? materialWaste.toLocaleString() : Math.abs(materialWaste).toLocaleString()} gp ${materialWaste >= 0 ? "waste" : "savings"}; material cost modifier ${materialCostModifierPct}%.`,
+    mechanicalEffectText: `${materialWaste >= 0 ? materialWaste.toLocaleString() : Math.abs(materialWaste).toLocaleString()} gp ${materialWaste >= 0 ? "waste" : "savings"}; material event money ${eventMaterialsMoney >= 0 ? "+" : ""}${eventMaterialsMoney} gp.`,
     effectTags: ["materials"],
   });
 
@@ -1243,7 +1587,7 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
     genericShopProfit,
     repairMiscProfit,
     genericShopCosts,
-    materialPurchasesLosses: materialPurchasesLosses + materialAdjustment + materialWaste,
+    materialPurchasesLosses: materialPurchasesLosses + materialWaste - eventMaterialsMoney,
     totalNetProfit,
     totalAvailableHours: effective.available,
     commissionProjectHours: effective.commissionWorkHours,
@@ -1329,9 +1673,9 @@ export function applyMonthlySimulation(state: CampaignState, simulation: Monthly
       projectId: project.projectId,
       projectName: project.name,
       roll: project.craftingRoll,
-      total: project.craftingRoll,
-      dc: 0,
-      margin: 0,
+      total: project.craftingTotal,
+      dc: project.craftDc,
+      margin: project.craftingTotal - project.craftDc,
       outcome: project.completedThisMonth ? "Normal" : "Delay",
     })),
     forecast,
@@ -1708,16 +2052,76 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
       ? Math.max(100, Math.round(state.profile.genericShopCostsGp / 10))
       : state.profile.genericShopCostsGp;
   const shopProfitBaselineGp = state.profile.shopProfitBaselineGp === 2000 ? 1700 : state.profile.shopProfitBaselineGp;
+  const toolForgeBonus = (state.profile.forgeBonus || 0) + (state.profile.toolBonus || 0);
+  const projects = state.projects.some((project) => project.id === "iron-doors-mermaid")
+    ? state.projects
+    : [...state.projects, createIronDoorsProject(state.materials)];
 
   return {
     ...state,
     profile: {
       ...state.profile,
+      skills: {
+        ...state.profile.skills,
+        armorsmithing: Math.max(0, 35 - toolForgeBonus),
+        weaponsmithing: Math.max(0, 12 - toolForgeBonus),
+        blacksmithing: Math.max(0, 7 - toolForgeBonus),
+      },
       genericShopCostsGp,
       shopProfitBaselineGp,
       dmTargetProfitGp: state.profile.dmTargetProfitGp || 2000,
       dmTargetVolatilityGp: state.profile.dmTargetVolatilityGp || 1000,
     },
+    projects,
+    labor: {
+      ...state.labor,
+      projectHours: {
+        ...Object.fromEntries(projects.map((project) => [project.id, state.labor.projectHours[project.id] ?? 0])),
+        "iron-doors-mermaid": state.labor.projectHours["iron-doors-mermaid"] ?? 60,
+      },
+    },
+  };
+}
+
+function createIronDoorsProject(materials: MaterialInventory): ForgeProject {
+  const item: ForgeItem = {
+    name: "Reinforced Iron Doors",
+    category: "blacksmithing",
+    complexity: "complex",
+    basePriceGp: 900,
+    masterwork: false,
+    materialRecipe: { Iron: 160, Steel: 20 },
+  };
+  const stats = deriveCraftingStats(item);
+  const materialRows = materialRowsFromRecipe(item.materialRecipe);
+  const materialCostValue = materialRows.reduce((total, row) => total + materialCost(materials, row), 0);
+
+  return {
+    id: "iron-doors-mermaid",
+    name: item.name,
+    client: "The Mermaid",
+    kind: "paid_commission",
+    economicMode: "profit_bearing",
+    materialSupplyMode: "taark_supplies",
+    payoutMode: "true_contract_value",
+    item,
+    itemType: item.name,
+    status: "in_progress",
+    priority: "medium",
+    trueContractValue: 1400,
+    listedItemValue: item.basePriceGp,
+    materialCost: materialCostValue,
+    specialExpenses: 0,
+    laborFee: Math.max(0, 1400 - materialCostValue),
+    trueMargin: Math.max(0, 1400 - materialCostValue),
+    requiredHours: stats.hours,
+    hoursInvested: 0,
+    craftDc: stats.dc,
+    prestige: 0,
+    reputationEffectOnCompletion: 0,
+    materials: materialRows,
+    notes: "Heavy iron door commission for the tavern/forge entryways.",
+    resolutionMode: "fixedHours",
   };
 }
 

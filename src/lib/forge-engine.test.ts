@@ -3,6 +3,7 @@ import {
   availableLabor,
   applyMonthlySimulation,
   craftQualityFromRoll,
+  createEventResolution,
   createResolutionDraft,
   deriveCraftingStats,
   eventActors,
@@ -188,6 +189,36 @@ describe("staged monthly resolution", () => {
     expect(craftQualityFromRoll(1)).toBe("bad_failure");
     expect(progressEfficiencyFromRoll(20)).toBe(1.5);
     expect(progressEfficiencyFromRoll(4)).toBe(0.5);
+  });
+
+  it("uses v1 event effects with target, hours, money, and volatility only", () => {
+    const tyrande = createEventResolution("Tyrande", 20, initialCampaignState);
+    const valthen = createEventResolution("Valthen", 20, initialCampaignState);
+    const guild = createEventResolution("Guild", 3, initialCampaignState);
+
+    expect(tyrande.effects).toEqual({
+      target: "commission",
+      hoursDelta: 0,
+      moneyDelta: 600,
+      volatilityDelta: 300,
+    });
+    expect(valthen.effects.target).toBe("commission");
+    expect(valthen.effects.hoursDelta).toBeGreaterThan(0);
+    expect(valthen.effects.volatilityDelta).toBeLessThan(0);
+    expect(guild.effects.moneyDelta).toBeLessThan(0);
+    expect(guild.effects.volatilityDelta).toBeLessThan(0);
+  });
+
+  it("seeds Taark's public craft totals and the Iron Doors commission", () => {
+    const bonuses = initialCampaignState.profile.skills;
+    const toolForgeBonus = initialCampaignState.profile.forgeBonus + initialCampaignState.profile.toolBonus;
+    const ironDoors = initialCampaignState.projects.find((project) => project.id === "iron-doors-mermaid");
+
+    expect(bonuses.armorsmithing + toolForgeBonus).toBe(35);
+    expect(bonuses.weaponsmithing + toolForgeBonus).toBe(12);
+    expect(bonuses.blacksmithing + toolForgeBonus).toBe(7);
+    expect(ironDoors?.item.category).toBe("blacksmithing");
+    expect(ironDoors?.client).toBe("The Mermaid");
   });
 
   it("forecasts deterministically without mutating campaign state", () => {

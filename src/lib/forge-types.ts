@@ -320,6 +320,15 @@ export type EventActor =
   | "Guild"
   | "City";
 
+export type MonthlyEventTarget = "commission" | "shop" | "inventory" | "materials" | "global";
+
+export interface MonthlyEventEffect {
+  hoursDelta: number;
+  moneyDelta: number;
+  volatilityDelta: number;
+  target: MonthlyEventTarget;
+}
+
 export type CraftQuality =
   | "natural_20"
   | "exceptional"
@@ -366,15 +375,8 @@ export interface EventResolution {
   strength: number;
   title: string;
   flavorText: string;
-  effects: {
-    hoursModifier?: number;
-    commissionDemandModifier?: number;
-    genericSalesModifier?: number;
-    materialCostModifier?: number;
-    materialWasteModifier?: number;
-    reputationModifier?: number;
-    craftRollModifier?: number;
-  };
+  band: "catastrophic" | "bad" | "setback" | "neutral" | "good" | "strong_good" | "exceptional";
+  effects: MonthlyEventEffect;
 }
 
 export interface ForecastResult {
@@ -425,6 +427,8 @@ export interface ProjectResolutionReport {
   requiredHours: number;
   progressPercentage: number;
   craftingRoll: number;
+  craftingTotal: number;
+  craftDc: number;
   quality: CraftQuality;
   completedThisMonth: boolean;
   recognizedProfit: number;
