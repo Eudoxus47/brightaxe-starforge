@@ -56,7 +56,7 @@ function recipeCost(materials: MaterialInventory, recipe: ForgeItem["materialRec
 function project(
   materials: MaterialInventory,
   input: Pick<ForgeProject, "id" | "client" | "item" | "priority" | "trueContractValue" | "prestige" | "notes" | "resolutionMode"> &
-    Partial<Pick<ForgeProject, "hoursInvested" | "kind" | "economicMode" | "materialSupplyMode" | "payoutMode">>,
+    Partial<Pick<ForgeProject, "hoursInvested" | "requiredHours" | "craftDc" | "kind" | "economicMode" | "materialSupplyMode" | "payoutMode">>,
 ): ForgeProject {
   const stats = deriveCraftingStats(input.item);
   const materialSupplyMode = input.materialSupplyMode ?? "taark_supplies";
@@ -79,9 +79,9 @@ function project(
     specialExpenses: 0,
     laborFee: Math.max(0, input.trueContractValue - materialCost),
     trueMargin: Math.max(0, input.trueContractValue - materialCost),
-    requiredHours: stats.hours,
+    requiredHours: input.requiredHours ?? stats.hours,
     hoursInvested: input.hoursInvested ?? 0,
-    craftDc: stats.dc,
+    craftDc: input.craftDc ?? stats.dc,
     prestige: input.prestige,
     reputationEffectOnCompletion: input.prestige,
     materials: materialRowsFromRecipe(input.item.materialRecipe, materialSupplyMode === "client_supplies" ? "client" : "taark", materialSupplyMode === "client_reimburses"),
@@ -117,6 +117,7 @@ const projects = [
     prestige: 2,
     notes: "Elite clan commission and Taark's current primary project.",
     resolutionMode: "fixedHours",
+    requiredHours: 260,
     hoursInvested: 94,
     economicMode: "reputation_only",
     payoutMode: "no_payment",

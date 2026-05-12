@@ -49,6 +49,7 @@ describe("crafting rules", () => {
 
     expect(project.resolutionMode).toBe("fixedHours");
     expect(getProjectRequirements(project).hours).toBe(project.requiredHours);
+    expect(project.hoursInvested).toBeLessThan(project.requiredHours);
   });
 });
 
@@ -181,12 +182,12 @@ describe("staged monthly resolution", () => {
   });
 
   it("auto-allocates commission slider hours by priority and caps at remaining work", () => {
-    const plans = allocateCommissionProjectHours(initialCampaignState, 120);
+    const plans = allocateCommissionProjectHours(initialCampaignState, 220);
     const byId = Object.fromEntries(plans.map((plan) => [plan.projectId, plan]));
 
-    expect(byId["basenhack-full-plate"].allocatedHours).toBe(0);
-    expect(byId["fairstream-breastplate"].allocatedHours).toBe(100);
-    expect(byId["purple-worm-tooth"].allocatedHours).toBe(20);
+    expect(byId["basenhack-full-plate"].allocatedHours).toBe(166);
+    expect(byId["fairstream-breastplate"].allocatedHours).toBe(54);
+    expect(byId["purple-worm-tooth"].allocatedHours).toBe(0);
     expect(byId["iron-doors-mermaid"].allocatedHours).toBe(0);
     expect(plans.filter((plan) => plan.selected).every((plan) => plan.allocatedHours > 0)).toBe(true);
   });
