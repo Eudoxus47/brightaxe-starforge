@@ -386,7 +386,9 @@ function TopBar({ state }: { state: ReturnType<typeof useLocalCampaign>["state"]
 function ForgeStage() {
   return (
     <section className="forge-art-panel">
-      <div className="forge-art" />
+      <video className="forge-art" autoPlay loop muted playsInline poster="/brightaxe-forge-backdrop.png" aria-label="Animated view of the Brightaxe forge">
+        <source src="/brightaxe-forge-loop.mp4" type="video/mp4" />
+      </video>
       <div className="forge-vignette" />
     </section>
   );

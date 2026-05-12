@@ -345,9 +345,9 @@ select:focus {
 .forge-art {
   position: absolute;
   inset: 0;
-  background-image: url("/brightaxe-forge-backdrop.png");
-  background-position: center;
-  background-size: cover;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   filter: saturate(0.92) contrast(1.06);
 }
 
