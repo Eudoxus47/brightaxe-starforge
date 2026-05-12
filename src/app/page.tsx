@@ -364,7 +364,7 @@ export default function Home() {
   return (
     <main className="dashboard-shell">
       <div className="dashboard-frame">
-        <audio ref={audioRef} src="/tavern-ambient.mp3" loop preload="auto" />
+        <audio ref={audioRef} src="/well-of-healing.wav" loop preload="auto" />
         <LeftColumn state={state} activeInfoPanel={activeInfoPanel} onToggleInfo={setActiveInfoPanel} />
 
         <section className="dashboard-center">
