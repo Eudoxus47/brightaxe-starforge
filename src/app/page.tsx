@@ -1190,10 +1190,12 @@ function LedgerStage({
   return (
     <div className="wizard-body ledger-body">
       <div className="summary-strip">
-        <StatRow label="Net Profit" value={`${report.totalNetProfit.toLocaleString()} gp`} />
-        <StatRow label="True Profit" value={`${report.trueProfitBeforePerfectionism.toLocaleString()} gp`} />
+        <StatRow label="Total Income" value={`${report.totalIncome.toLocaleString()} gp`} />
+        <StatRow label="Total Costs" value={`${report.totalCosts.toLocaleString()} gp`} />
+        <StatRow label="Profit" value={`${report.trueProfitBeforePerfectionism.toLocaleString()} gp`} />
         <StatRow label="Perfectionism Tax" value={`${report.perfectionismWaste.toLocaleString()} gp`} />
-        <StatRow label="Gross Profit" value={`${(report.controlledRecognizedCommissionProfit + report.trueShopValue + report.repairMiscProfit).toLocaleString()} gp`} />
+        <StatRow label="Final Profit" value={`${report.totalNetProfit.toLocaleString()} gp`} />
+        <StatRow label="Roll Impact" value={`${report.rollImpactGp >= 0 ? "+" : ""}${report.rollImpactGp.toLocaleString()} gp (${report.rollImpactStandardDeviations >= 0 ? "+" : ""}${report.rollImpactStandardDeviations} std dev)`} />
         <StatRow label="Rep" value={`${report.startingReputation} -> ${report.endingReputation}`} />
       </div>
       <MiniList title="Profit Calculation" rows={report.ledgerSummaryLines} />
@@ -1409,14 +1411,17 @@ function monthlyReportMarkdown(simulation: MonthlyResolutionSimulation) {
   return [
     `# ${simulation.monthLabel} Forge Report`,
     "",
-    `Net profit: ${report.totalNetProfit.toLocaleString()} gp`,
-    `True profit before Perfectionism: ${report.trueProfitBeforePerfectionism.toLocaleString()} gp`,
-    `Commission/project value: ${report.grossCommissionProjectValue.toLocaleString()} gp`,
-    `True commission profit before Perfectionism: ${report.controlledRecognizedCommissionProfit.toLocaleString()} gp`,
-    `True shop value: ${report.trueShopValue.toLocaleString()} gp`,
-    `Repair/misc profit: ${report.repairMiscProfit.toLocaleString()} gp`,
-    `Generic shop costs: ${report.genericShopCosts.toLocaleString()} gp`,
+    `Total income: ${report.totalIncome.toLocaleString()} gp`,
+    `Total costs: ${report.totalCosts.toLocaleString()} gp`,
+    `Profit before Perfectionism: ${report.trueProfitBeforePerfectionism.toLocaleString()} gp`,
     `Perfectionism Tax: ${report.perfectionismWaste.toLocaleString()} gp`,
+    `Final profit: ${report.totalNetProfit.toLocaleString()} gp`,
+    `Roll impact: ${report.rollImpactGp >= 0 ? "+" : ""}${report.rollImpactGp.toLocaleString()} gp (${report.rollImpactStandardDeviations >= 0 ? "+" : ""}${report.rollImpactStandardDeviations} standard deviations)`,
+    `Commission receipts: ${report.grossCommissionProjectValue.toLocaleString()} gp`,
+    `Commission net contribution: ${report.controlledRecognizedCommissionProfit.toLocaleString()} gp`,
+    `Shop income: ${report.trueShopValue.toLocaleString()} gp`,
+    `Repair/misc income: ${report.repairMiscProfit.toLocaleString()} gp`,
+    `Shop and material-management costs: ${report.genericShopCosts.toLocaleString()} gp`,
     "",
     "## Profit Calculation",
     ...report.ledgerSummaryLines.map((line) => `- ${line}`),

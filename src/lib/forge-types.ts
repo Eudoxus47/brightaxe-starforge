@@ -476,8 +476,12 @@ export interface MonthlyResolutionReport {
   genericShopCosts: number;
   materialPurchasesLosses: number;
   perfectionismWaste: number;
+  totalIncome: number;
+  totalCosts: number;
   trueProfitBeforePerfectionism: number;
   totalNetProfit: number;
+  rollImpactGp: number;
+  rollImpactStandardDeviations: number;
   ledgerSummaryLines: string[];
   totalAvailableHours: number;
   commissionProjectHours: number;

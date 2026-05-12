@@ -1727,6 +1727,7 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
   let grossCommissionProjectValue = 0;
   let recognizedCommissionProfit = eventTotals.moneyByTarget.commission;
   let materialPurchasesLosses = 0;
+  let projectDirectCosts = 0;
   let perfectionismWaste = 0;
   let rawReputationChange = 0;
 
@@ -1786,12 +1787,14 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
       grossCommissionProjectValue += report.grossCashReceived;
       recognizedCommissionProfit += report.netCashImpact;
       materialPurchasesLosses += report.trueMaterialCost;
+      projectDirectCosts += report.trueMaterialCost + report.trueSpecialExpenses;
       perfectionismWaste += report.perfectionismWaste;
       rawReputationChange += projectReputationChange(project, quality);
       nextMaterials = consumeProjectMaterials(nextMaterials, project);
     }
     if (materialFailureLoss > 0) {
       materialPurchasesLosses += materialFailureLoss;
+      projectDirectCosts += materialFailureLoss;
       eventLog.push(`${project.name}: failed by 5+ and ruined ${materialFailureLoss.toLocaleString()} gp of raw materials.`);
     }
 
@@ -1865,8 +1868,12 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
   const sold = sellInventory(nextInventory, demand);
   nextInventory = sold.inventory;
   const genericShopProfit = sold.shopSales + ambientShopSales(sold.unmetDemand) + eventShopMoney;
-  const trueProfitBeforePerfectionism = recognizedCommissionProfit + genericShopProfit + repairMiscProfit - genericShopCosts;
+  const totalIncome = grossCommissionProjectValue + eventTotals.moneyByTarget.commission + genericShopProfit + repairMiscProfit;
+  const totalCosts = projectDirectCosts + genericShopCosts;
+  const trueProfitBeforePerfectionism = totalIncome - totalCosts;
   const totalNetProfit = trueProfitBeforePerfectionism - perfectionismWaste;
+  const rollImpactGp = totalNetProfit - forecast.expectedTotalProfit;
+  const rollImpactStandardDeviations = Number((rollImpactGp / Math.max(1, forecast.profitSigma)).toFixed(2));
   const reputationChange = boundedReputationChange(rawReputationChange);
   const endingReputation = Math.max(0, Math.min(state.profile.maxReputation, state.profile.reputation + reputationChange));
 
@@ -1899,16 +1906,21 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
     genericShopProfit,
     repairMiscProfit,
     genericShopCosts,
-    materialPurchasesLosses: materialPurchasesLosses + materialWaste - eventMaterialsMoney,
+    materialPurchasesLosses,
     perfectionismWaste,
+    totalIncome,
+    totalCosts,
     trueProfitBeforePerfectionism,
     totalNetProfit,
+    rollImpactGp,
+    rollImpactStandardDeviations,
     ledgerSummaryLines: [
-      `True Profit before Perfectionism: ${trueProfitBeforePerfectionism.toLocaleString()} gp.`,
-      `Profit inputs: ${recognizedCommissionProfit.toLocaleString()} gp commissions + ${genericShopProfit.toLocaleString()} gp shop value + ${repairMiscProfit.toLocaleString()} gp repairs.`,
-      `Ordinary costs: ${genericShopCosts.toLocaleString()} gp after material events and material-management waste/savings.`,
-      `Perfectionism Tax: ${perfectionismWaste.toLocaleString()} gp total (${operatingPerfectionismWaste.toLocaleString()} gp operating habit + ${(perfectionismWaste - operatingPerfectionismWaste).toLocaleString()} gp project rework/rejection).`,
-      `Net Profit: ${trueProfitBeforePerfectionism.toLocaleString()} gp true profit - ${perfectionismWaste.toLocaleString()} gp Perfectionism Tax = ${totalNetProfit.toLocaleString()} gp.`,
+      `Total Income: ${totalIncome.toLocaleString()} gp (${grossCommissionProjectValue.toLocaleString()} gp commission receipts + ${eventTotals.moneyByTarget.commission.toLocaleString()} gp commission events + ${genericShopProfit.toLocaleString()} gp shop income + ${repairMiscProfit.toLocaleString()} gp repairs).`,
+      `Total Costs: ${totalCosts.toLocaleString()} gp (${projectDirectCosts.toLocaleString()} gp commission materials and special expenses + ${genericShopCosts.toLocaleString()} gp shop and material-management costs).`,
+      `Profit before Perfectionism: ${totalIncome.toLocaleString()} gp income - ${totalCosts.toLocaleString()} gp costs = ${trueProfitBeforePerfectionism.toLocaleString()} gp.`,
+      `Perfectionism Tax: ${perfectionismWaste.toLocaleString()} gp total (${operatingPerfectionismWaste.toLocaleString()} gp operating habit + ${(perfectionismWaste - operatingPerfectionismWaste).toLocaleString()} gp project rework/rejection), tuning the month toward DM fiat without hiding the true ledger.`,
+      `Final Profit: ${trueProfitBeforePerfectionism.toLocaleString()} gp profit - ${perfectionismWaste.toLocaleString()} gp Perfectionism Tax = ${totalNetProfit.toLocaleString()} gp.`,
+      `Roll Impact: ${rollImpactGp >= 0 ? "+" : ""}${rollImpactGp.toLocaleString()} gp versus forecast, about ${rollImpactStandardDeviations >= 0 ? "+" : ""}${rollImpactStandardDeviations} standard deviations.`,
       `The DM target is ${state.profile.dmTargetProfitGp.toLocaleString()} gp with standard deviation ${state.profile.dmTargetVolatilityGp.toLocaleString()} gp; strong rolls, events, and completed commissions can legitimately exceed it.`,
     ],
     totalAvailableHours: effective.available,
@@ -1935,7 +1947,7 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
     ["perfectionism", "Perfectionism Tax", `${perfectionismWaste.toLocaleString()} gp lost to rejected, overbuilt, or reworked materials.`],
     ["inventory-materials", "Inventory and Materials Update", `${report.itemsProduced.length} item groups produced; ${report.itemsSold.length} item groups sold.`],
     ["reputation", "Reputation Update", `${state.profile.reputation} -> ${endingReputation}.`],
-    ["final-net", "Final Net Profit", `${trueProfitBeforePerfectionism.toLocaleString()} gp true profit - ${perfectionismWaste.toLocaleString()} gp Perfectionism Tax = ${totalNetProfit.toLocaleString()} gp net.`],
+    ["final-net", "Final Profit", `${totalIncome.toLocaleString()} gp income - ${totalCosts.toLocaleString()} gp costs - ${perfectionismWaste.toLocaleString()} gp Perfectionism Tax = ${totalNetProfit.toLocaleString()} gp.`],
   ] as Array<[string, string, string]>) {
     cards.push({
       id: card[0],
