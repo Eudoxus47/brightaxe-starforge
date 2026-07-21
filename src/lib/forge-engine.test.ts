@@ -72,11 +72,11 @@ describe("crafting rules", () => {
     expect(financials.netCashImpact).toBe(0);
   });
 
-  it("caps commission upside while only partly cushioning pro-bono losses", () => {
+  it("caps commission upside while generously but finitely cushioning pro-bono losses", () => {
     expect(commissionShopDemandAdjustment(initialCampaignState, 2500)).toBe(1500);
     expect(commissionShopDemandAdjustment(initialCampaignState, 800)).toBe(0);
-    expect(commissionShopDemandAdjustment(initialCampaignState, -1200)).toBe(-300);
-    expect(commissionShopDemandAdjustment(initialCampaignState, -5000)).toBe(-500);
+    expect(commissionShopDemandAdjustment(initialCampaignState, -1200)).toBe(-600);
+    expect(commissionShopDemandAdjustment(initialCampaignState, -5000)).toBe(-750);
   });
 });
 

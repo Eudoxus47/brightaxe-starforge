@@ -1418,8 +1418,8 @@ export function commissionShopDemandAdjustment(state: CampaignState, commissionN
   }
 
   const proBonoCushion = Math.min(
-    Math.round(Math.abs(commissionNetImpact) * 0.25),
-    Math.max(0, state.profile.dmTargetVolatilityGp),
+    Math.round(Math.abs(commissionNetImpact) * 0.5),
+    Math.max(0, Math.round(state.profile.dmTargetVolatilityGp * 1.5)),
   );
   return -proBonoCushion;
 }
@@ -1491,7 +1491,7 @@ export function validateResolutionPlan(state: CampaignState, draft: MonthlyResol
   }, 0);
   if (fundedProBonoExposure > state.profile.dmTargetVolatilityGp) {
     warnings.push(
-      `Funded pro-bono completions expose Taark to ${fundedProBonoExposure.toLocaleString()} gp in unreimbursed costs; a lean month is an intentional consequence.`,
+      `Funded pro-bono completions expose Taark to ${fundedProBonoExposure.toLocaleString()} gp in unreimbursed costs; goodwill cushions part of that burden, but a lean month remains possible.`,
     );
   }
 
