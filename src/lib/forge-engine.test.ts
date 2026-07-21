@@ -3,7 +3,9 @@ import {
   availableLabor,
   allocateCommissionProjectHours,
   applyMonthlySimulation,
+  calculateProjectFinancials,
   campaignCalendarLabel,
+  commissionShopDemandAdjustment,
   craftQualityFromRoll,
   createEventResolution,
   createResolutionDraft,
@@ -57,6 +59,24 @@ describe("crafting rules", () => {
     expect(project.resolutionMode).toBe("fixedHours");
     expect(getProjectRequirements(project).hours).toBe(project.requiredHours);
     expect(project.hoursInvested).toBeLessThan(project.requiredHours);
+  });
+
+  it("keeps client-reimbursed nonprofit work at zero project profit", () => {
+    const project = initialCampaignState.projects.find((candidate) => candidate.id === "fairstream-breastplate");
+    expect(project).toBeDefined();
+
+    const financials = calculateProjectFinancials(project!, initialCampaignState.materials, 1400, 1000, 45);
+
+    expect(financials.materialReimbursement).toBe(financials.trueMaterialCost);
+    expect(financials.grossCashReceived).toBe(financials.trueMaterialCost);
+    expect(financials.netCashImpact).toBe(0);
+  });
+
+  it("caps commission upside while only partly cushioning pro-bono losses", () => {
+    expect(commissionShopDemandAdjustment(initialCampaignState, 2500)).toBe(1500);
+    expect(commissionShopDemandAdjustment(initialCampaignState, 800)).toBe(0);
+    expect(commissionShopDemandAdjustment(initialCampaignState, -1200)).toBe(-300);
+    expect(commissionShopDemandAdjustment(initialCampaignState, -5000)).toBe(-500);
   });
 });
 
@@ -326,15 +346,18 @@ describe("staged monthly resolution", () => {
     const toolForgeBonus = initialCampaignState.profile.forgeBonus + initialCampaignState.profile.toolBonus;
     const ironDoors = initialCampaignState.projects.find((project) => project.id === "iron-doors-mermaid");
 
-    expect(bonuses.armorsmithing + toolForgeBonus).toBe(35);
-    expect(bonuses.weaponsmithing + toolForgeBonus).toBe(12);
-    expect(bonuses.blacksmithing + toolForgeBonus).toBe(7);
+    expect(bonuses.armorsmithing + toolForgeBonus).toBe(41);
+    expect(bonuses.weaponsmithing + toolForgeBonus).toBe(15);
+    expect(bonuses.blacksmithing + toolForgeBonus).toBe(8);
     expect(bonuses.finesmithing + toolForgeBonus).toBe(3);
     expect(bonuses.locksmithing + toolForgeBonus).toBe(5);
     expect(ironDoors?.item.category).toBe("blacksmithing");
     expect(ironDoors?.client).toBe("The Mermaid");
     expect(ironDoors?.craftDc).toBe(18);
     expect(ironDoors?.requiredHours).toBe(28);
+    expect(initialCampaignState.projects.every((project) => project.economicMode === "reputation_only")).toBe(true);
+    expect(initialCampaignState.projects.find((project) => project.id === "fairstream-breastplate")?.payoutMode).toBe("materials_only");
+    expect(initialCampaignState.projects.filter((project) => project.id !== "fairstream-breastplate").every((project) => project.payoutMode === "no_payment")).toBe(true);
   });
 
   it("forecasts deterministically without mutating campaign state", () => {

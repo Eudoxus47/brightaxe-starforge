@@ -145,9 +145,9 @@ const profile: CampaignState["profile"] = {
   reputation: 14,
   maxReputation: 20,
   skills: {
-    armorsmithing: 31,
-    weaponsmithing: 8,
-    blacksmithing: 3,
+    armorsmithing: 37,
+    weaponsmithing: 11,
+    blacksmithing: 4,
     finesmithing: -1,
     locksmithing: 1,
   },
@@ -217,7 +217,8 @@ const projects = [
     resolutionMode: "craftingPdf",
     hoursInvested: 12,
     materialSupplyMode: "client_reimburses",
-    payoutMode: "materials_plus_labor",
+    economicMode: "reputation_only",
+    payoutMode: "materials_only",
   }),
   project(materials, {
     id: "purple-worm-tooth",
@@ -243,6 +244,8 @@ const projects = [
     notes: "Heavy iron door commission for the tavern/forge entryways.",
     resolutionMode: "fixedHours",
     hoursInvested: 0,
+    economicMode: "reputation_only",
+    payoutMode: "no_payment",
   }),
 ];
 

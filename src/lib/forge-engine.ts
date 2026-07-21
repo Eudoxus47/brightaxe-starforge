@@ -547,8 +547,10 @@ export function calculateProjectFinancials(
   const materialReimbursement =
     project.materialSupplyMode === "no_material_cost"
       ? 0
-      : reimbursedRows.reduce((total, row) => total + materialCost(materials, row), 0) +
-        (project.materialReimbursementPaid ?? 0);
+      : project.materialSupplyMode === "client_reimburses"
+        ? trueMaterialCost + (project.materialReimbursementPaid ?? 0)
+        : reimbursedRows.reduce((total, row) => total + materialCost(materials, row), 0) +
+          (project.materialReimbursementPaid ?? 0);
   const trueRevenue =
     project.payoutMode === "dm_fixed_amount"
       ? project.dmFixedPayout ?? 0
@@ -584,12 +586,13 @@ export function calculateProjectFinancials(
   const recognizedRevenue = recognizedMaterialBurden + recognizedSpecialExpenses + shadedProfit;
   const unreimbursedMaterialCost = Math.max(0, trueMaterialCost - materialReimbursement);
   const opportunityCost = isProfitCoupled ? 0 : Math.max(0, project.hoursInvested * 7 + unreimbursedMaterialCost + project.specialExpenses);
+  const nonprofitCashCost = Math.max(0, unreimbursedMaterialCost + project.specialExpenses);
   const netCashImpact = isProfitCoupled
     ? shadedProfit
     : project.economicMode === "break_even"
       ? 0
       : project.economicMode === "internal_asset" || project.economicMode === "no_revenue" || project.economicMode === "reputation_only"
-        ? -Math.max(0, unreimbursedMaterialCost + project.specialExpenses)
+        ? nonprofitCashCost === 0 ? 0 : -nonprofitCashCost
         : trueRevenue - trueMaterialCost - project.specialExpenses;
   const physicalRecipeCost = Math.max(1, physicalRows.reduce((total, row) => total + materialCost(materials, row), 0));
   const physicalEquivalent = (row: ProjectMaterial) => Math.round(trueMaterialCost * (materialCost(materials, row) / physicalRecipeCost));
@@ -1408,6 +1411,18 @@ function projectReputationChange(project: ForgeProject, quality: CraftQuality): 
   return 0;
 }
 
+export function commissionShopDemandAdjustment(state: CampaignState, commissionNetImpact: number): number {
+  if (commissionNetImpact >= 0) {
+    return Math.max(0, Math.round(commissionNetImpact - state.profile.commissionSpikeCapGp));
+  }
+
+  const proBonoCushion = Math.min(
+    Math.round(Math.abs(commissionNetImpact) * 0.25),
+    Math.max(0, state.profile.dmTargetVolatilityGp),
+  );
+  return -proBonoCushion;
+}
+
 function targetedShopDemand(
   state: CampaignState,
   effective: ReturnType<typeof effectiveAllocation>,
@@ -1415,6 +1430,7 @@ function targetedShopDemand(
   shopRoll: number,
   materialWaste: number,
   volatilityModifier = 0,
+  commissionNetImpact = 0,
 ): number {
   const target = state.profile.dmTargetProfitGp;
   const sigma = Math.max(150, state.profile.dmTargetVolatilityGp + volatilityModifier);
@@ -1422,7 +1438,9 @@ function targetedShopDemand(
   const shelfHoursModifier = Math.round((effective.genericShopWorkHours - 80) * 3.5);
   const repairProfit = Math.round(effective.repairsWalkinsHours * 7);
   const eventPressure = Math.round(eventShopMoneyModifier * 0.2);
-  const desiredNonCommissionNet = target + rollSwing + shelfHoursModifier + eventPressure - Math.max(0, materialWaste);
+  const commissionAdjustment = commissionShopDemandAdjustment(state, commissionNetImpact);
+  const desiredNonCommissionNet =
+    target + rollSwing + shelfHoursModifier + eventPressure - Math.max(0, materialWaste) - commissionAdjustment;
 
   return Math.max(0, desiredNonCommissionNet + state.profile.genericShopCostsGp - repairProfit);
 }
@@ -1455,6 +1473,25 @@ export function validateResolutionPlan(state: CampaignState, draft: MonthlyResol
     if (project.hoursInvested + plan.allocatedHours < requirements.hours) {
       warnings.push(`${project.name} cannot plausibly complete this month without strong rolls.`);
     }
+  }
+
+  const fundedProBonoExposure = selectedPlans(draft).reduce((total, plan) => {
+    const project = activeById.get(plan.projectId);
+    if (!project || (project.economicMode !== "reputation_only" && project.economicMode !== "no_revenue")) return total;
+    if (plan.fundingStatus !== "funded" && plan.fundingStatus !== "buffered") return total;
+    const financials = calculateProjectFinancials(
+      project,
+      state.materials,
+      state.profile.commissionAnchorGp,
+      state.profile.commissionSpikeCapGp,
+      state.profile.perfectionismWastePct,
+    );
+    return total + Math.max(0, financials.unreimbursedMaterialCost + financials.trueSpecialExpenses);
+  }, 0);
+  if (fundedProBonoExposure > state.profile.dmTargetVolatilityGp) {
+    warnings.push(
+      `Funded pro-bono completions expose Taark to ${fundedProBonoExposure.toLocaleString()} gp in unreimbursed costs; a lean month is an intentional consequence.`,
+    );
   }
 
   const deficitCount = state.inventory.filter((stock) => stock.quantity < stock.target).length;
@@ -1657,7 +1694,15 @@ export function forecastMonthlyPlan(state: CampaignState, draft: MonthlyResoluti
     const eventMaterialsMoney = eventTotals.moneyByTarget.materials;
     const materialWasteBase = Math.round(inventoryValueCapacity(nextInventory) * 0.02);
     const materialWaste = materialRoll <= 4 ? materialWasteBase : 0;
-    const demand = targetedShopDemand(state, effective, eventShopMoney, shopRoll, materialWaste, eventTotals.totalVolatility);
+    const demand = targetedShopDemand(
+      state,
+      effective,
+      eventShopMoney,
+      shopRoll,
+      materialWaste,
+      eventTotals.totalVolatility,
+      commissionProfit + eventCommissionMoney,
+    );
     const inventoryCapacity = inventoryValueCapacity(nextInventory);
     const sale = sellInventory(nextInventory, demand);
     const repairProfit = Math.round(effective.repairsWalkinsHours * 7);
@@ -1908,7 +1953,16 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
   const operatingPerfectionismWaste = monthlyPerfectionismWaste(state.profile);
   perfectionismWaste += operatingPerfectionismWaste;
   const genericShopCosts = Math.max(0, state.profile.genericShopCostsGp + Math.max(0, materialWaste) - eventMaterialsMoney);
-  const demand = targetedShopDemand(state, effective, eventShopMoney, shopRoll, Math.max(0, materialWaste), eventVolatility);
+  const commissionDemandAdjustment = commissionShopDemandAdjustment(state, recognizedCommissionProfit);
+  const demand = targetedShopDemand(
+    state,
+    effective,
+    eventShopMoney,
+    shopRoll,
+    Math.max(0, materialWaste),
+    eventVolatility,
+    recognizedCommissionProfit,
+  );
   const sold = sellInventory(nextInventory, demand);
   nextInventory = sold.inventory;
   const genericShopProfit = sold.shopSales + ambientShopSales(sold.unmetDemand) + eventShopMoney;
@@ -1963,6 +2017,11 @@ export function resolveMonthlyDraft(state: CampaignState, draft: MonthlyResoluti
       `Total Costs: ${totalCosts.toLocaleString()} gp (${projectDirectCosts.toLocaleString()} gp commission materials and special expenses + ${genericShopCosts.toLocaleString()} gp shop and material-management costs).`,
       `Profit before Perfectionism: ${totalIncome.toLocaleString()} gp income - ${totalCosts.toLocaleString()} gp costs = ${trueProfitBeforePerfectionism.toLocaleString()} gp.`,
       `Perfectionism Tax: ${perfectionismWaste.toLocaleString()} gp total (${operatingPerfectionismWaste.toLocaleString()} gp operating habit + ${(perfectionismWaste - operatingPerfectionismWaste).toLocaleString()} gp project rework/rejection), tuning the month toward DM fiat without hiding the true ledger.`,
+      commissionDemandAdjustment > 0
+        ? `Market Calibration: ordinary shop demand absorbed ${commissionDemandAdjustment.toLocaleString()} gp of commission upside above the configured spike allowance.`
+        : commissionDemandAdjustment < 0
+          ? `Market Calibration: ordinary shop demand cushioned ${Math.abs(commissionDemandAdjustment).toLocaleString()} gp of pro-bono cost; Taark still bears the remaining loss.`
+          : "Market Calibration: commission work did not require a shop-demand adjustment this month.",
       `Final Profit: ${trueProfitBeforePerfectionism.toLocaleString()} gp profit - ${perfectionismWaste.toLocaleString()} gp Perfectionism Tax = ${totalNetProfit.toLocaleString()} gp.`,
       `Roll Impact: ${rollImpactGp >= 0 ? "+" : ""}${rollImpactGp.toLocaleString()} gp versus forecast, about ${rollImpactStandardDeviations >= 0 ? "+" : ""}${rollImpactStandardDeviations} standard deviations.`,
       `The DM target is ${state.profile.dmTargetProfitGp.toLocaleString()} gp with standard deviation ${state.profile.dmTargetVolatilityGp.toLocaleString()} gp; strong rolls, events, and completed commissions can legitimately exceed it.`,
@@ -2722,9 +2781,9 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
     ...state.profile,
     skills: {
       ...state.profile.skills,
-      armorsmithing: Math.max(0, 35 - toolForgeBonus),
-      weaponsmithing: Math.max(0, 12 - toolForgeBonus),
-      blacksmithing: Math.max(0, 7 - toolForgeBonus),
+      armorsmithing: Math.max(0, 41 - toolForgeBonus),
+      weaponsmithing: Math.max(0, 15 - toolForgeBonus),
+      blacksmithing: Math.max(0, 8 - toolForgeBonus),
       finesmithing: 3 - toolForgeBonus,
       locksmithing: 5 - toolForgeBonus,
     },
@@ -2738,7 +2797,24 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
   const baseProjects = state.projects.some((project) => project.id === "iron-doors-mermaid")
     ? state.projects
     : [...state.projects, createIronDoorsProject(materials, profile)];
-  const projects = baseProjects.map((project) => normalizeProjectForRules(project, profile));
+  const seededNonprofitProjectIds = new Set([
+    "basenhack-full-plate",
+    "fairstream-breastplate",
+    "purple-worm-tooth",
+    "iron-doors-mermaid",
+  ]);
+  const projects = baseProjects.map((project) =>
+    normalizeProjectForRules(
+      seededNonprofitProjectIds.has(project.id)
+        ? {
+            ...project,
+            economicMode: "reputation_only",
+            payoutMode: project.id === "fairstream-breastplate" ? "materials_only" : "no_payment",
+          }
+        : project,
+      profile,
+    ),
+  );
 
   return {
     ...state,
