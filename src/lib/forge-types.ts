@@ -559,7 +559,7 @@ export interface CampaignSettings {
 }
 
 export interface CampaignState {
-  version: 2;
+  version: 3;
   currentMonth: number;
   monthLabel: string;
   profile: ForgeProfile;
@@ -572,6 +572,10 @@ export interface CampaignState {
   settings: CampaignSettings;
   lastResolution?: ResolutionResult;
 }
+
+export type Version2CampaignState = Omit<CampaignState, "version"> & {
+  version: 2;
+};
 
 export type LegacyCampaignState = Omit<CampaignState, "version" | "profile" | "materials" | "projects" | "labor" | "settings"> & {
   version: 1;

@@ -28,7 +28,7 @@ import {
   usedLabor,
   validateResolutionPlan,
 } from "./forge-engine";
-import type { MonthlyResolutionDraft } from "./forge-types";
+import type { MonthlyResolutionDraft, Version2CampaignState } from "./forge-types";
 import { initialCampaignState } from "./seed";
 
 describe("crafting rules", () => {
@@ -356,8 +356,58 @@ describe("staged monthly resolution", () => {
     expect(ironDoors?.craftDc).toBe(18);
     expect(ironDoors?.requiredHours).toBe(28);
     expect(initialCampaignState.projects.every((project) => project.economicMode === "reputation_only")).toBe(true);
+    expect(initialCampaignState.projects.every((project) => project.trueContractValue === 0)).toBe(true);
     expect(initialCampaignState.projects.find((project) => project.id === "fairstream-breastplate")?.payoutMode).toBe("materials_only");
     expect(initialCampaignState.projects.filter((project) => project.id !== "fairstream-breastplate").every((project) => project.payoutMode === "no_payment")).toBe(true);
+  });
+
+  it("migrates every active v2 queue item to pro bono exactly once", () => {
+    const fifthProject = {
+      ...initialCampaignState.projects[0],
+      id: "custom-fifth-project",
+      name: "Custom fifth project",
+      economicMode: "profit_bearing" as const,
+      payoutMode: "true_contract_value" as const,
+      trueContractValue: 9000,
+      laborFee: 8500,
+      trueMargin: 8200,
+    };
+    const version2 = {
+      ...initialCampaignState,
+      version: 2 as const,
+      projects: [...initialCampaignState.projects, fifthProject],
+    } as Version2CampaignState;
+
+    const normalized = normalizeCampaignState(version2);
+    const activeProjects = normalized?.projects.filter((project) => project.status === "queued" || project.status === "in_progress") ?? [];
+
+    expect(normalized?.version).toBe(3);
+    expect(activeProjects).toHaveLength(5);
+    expect(activeProjects.every((project) => project.economicMode === "reputation_only")).toBe(true);
+    expect(activeProjects.every((project) => project.trueContractValue === 0)).toBe(true);
+    expect(activeProjects.find((project) => project.id === "custom-fifth-project")?.payoutMode).toBe("no_payment");
+  });
+
+  it("preserves paid projects created after the pro bono migration", () => {
+    const paidProject = {
+      ...initialCampaignState.projects[0],
+      id: "future-paid-project",
+      economicMode: "profit_bearing" as const,
+      payoutMode: "true_contract_value" as const,
+      trueContractValue: 2400,
+      laborFee: 1800,
+      trueMargin: 1600,
+    };
+
+    const normalized = normalizeCampaignState({
+      ...initialCampaignState,
+      projects: [...initialCampaignState.projects, paidProject],
+    });
+    const result = normalized?.projects.find((project) => project.id === paidProject.id);
+
+    expect(result?.economicMode).toBe("profit_bearing");
+    expect(result?.payoutMode).toBe("true_contract_value");
+    expect(result?.trueContractValue).toBe(2400);
   });
 
   it("forecasts deterministically without mutating campaign state", () => {

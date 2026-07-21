@@ -30,6 +30,7 @@ import type {
   ProjectMaterial,
   ProjectMonthlyPlan,
   ProjectTemplateName,
+  Version2CampaignState,
   ResolutionCard,
   ResolutionResult,
 } from "./forge-types";
@@ -2655,7 +2656,7 @@ function normalizeProjectForRules(project: ForgeProject, profile: ForgeProfile):
   const requiredHours = project.resolutionMode === "craftingPdf" ? stats.hours : Math.max(1, project.requiredHours || stats.hours);
   const craftDc = project.resolutionMode === "craftingPdf" ? stats.dc : Math.max(1, project.craftDc || stats.dc);
   const materialCost = project.rawMaterialCostOverrideGp ?? stats.rawMaterialCostGp;
-  const trueContractValue = project.trueContractValue || stats.marketPriceGp;
+  const trueContractValue = project.trueContractValue ?? stats.marketPriceGp;
 
   return {
     ...project,
@@ -2724,7 +2725,7 @@ export function migrateLegacyCampaignState(legacy: LegacyCampaignState): Campaig
 
   return {
     ...legacy,
-    version: 2,
+    version: 3,
     profile: {
       ...legacy.profile,
       name: legacy.profile.name.replace("Tark", "Taark"),
@@ -2756,11 +2757,32 @@ export function migrateLegacyCampaignState(legacy: LegacyCampaignState): Campaig
   };
 }
 
+function migrateVersion2CampaignState(state: Version2CampaignState): CampaignState {
+  return {
+    ...state,
+    version: 3,
+    projects: state.projects.map((project) => {
+      if (project.status !== "queued" && project.status !== "in_progress") return project;
+      return {
+        ...project,
+        economicMode: "reputation_only",
+        payoutMode: project.materialSupplyMode === "client_reimburses" ? "materials_only" : "no_payment",
+        trueContractValue: 0,
+        laborFee: 0,
+        trueMargin: 0,
+      };
+    }),
+  };
+}
+
 export function normalizeCampaignState(value: unknown): CampaignState | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as { version?: number; projects?: unknown; commissions?: unknown };
-  if (candidate.version === 2 && Array.isArray(candidate.projects)) {
+  if (candidate.version === 3 && Array.isArray(candidate.projects)) {
     return rebalanceCampaignDefaults(value as CampaignState);
+  }
+  if (candidate.version === 2 && Array.isArray(candidate.projects)) {
+    return rebalanceCampaignDefaults(migrateVersion2CampaignState(value as Version2CampaignState));
   }
   if (candidate.version === 1 && Array.isArray(candidate.commissions)) {
     return rebalanceCampaignDefaults(migrateLegacyCampaignState(value as LegacyCampaignState));
@@ -2810,6 +2832,9 @@ function rebalanceCampaignDefaults(state: CampaignState): CampaignState {
             ...project,
             economicMode: "reputation_only",
             payoutMode: project.id === "fairstream-breastplate" ? "materials_only" : "no_payment",
+            trueContractValue: 0,
+            laborFee: 0,
+            trueMargin: 0,
           }
         : project,
       profile,

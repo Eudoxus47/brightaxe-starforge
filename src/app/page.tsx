@@ -229,14 +229,19 @@ export default function Home() {
     setDraft((current) => ({ ...current, forecast: undefined, simulation: undefined }));
   }
 
-  function updateProject(id: string, update: Partial<Pick<ForgeProject, "client" | "trueContractValue" | "requiredHours" | "hoursInvested" | "craftDc" | "priority" | "notes" | "item" | "take10" | "resolutionMode" | "hoursOverride" | "craftDcOverride" | "marketPriceOverrideGp" | "rawMaterialCostOverrideGp">>) {
+  function updateProject(id: string, update: Partial<Pick<ForgeProject, "client" | "trueContractValue" | "requiredHours" | "hoursInvested" | "craftDc" | "priority" | "notes" | "item" | "take10" | "resolutionMode" | "hoursOverride" | "craftDcOverride" | "marketPriceOverrideGp" | "rawMaterialCostOverrideGp" | "economicMode" | "materialSupplyMode" | "payoutMode">>) {
     setState((current) => ({
       ...current,
       projects: current.projects.map((project) => {
         if (project.id !== id) return project;
         const item = update.item ?? project.item;
         const stats = deriveCraftingStats(item, current.profile);
-        const trueContractValue = update.trueContractValue ?? project.trueContractValue;
+        const economicMode = update.economicMode ?? project.economicMode;
+        const materialSupplyMode = update.materialSupplyMode ?? project.materialSupplyMode;
+        const payoutMode = update.payoutMode ?? project.payoutMode;
+        const trueContractValue = economicMode === "reputation_only" || economicMode === "no_revenue"
+          ? 0
+          : update.trueContractValue ?? project.trueContractValue;
         const materialCost = update.rawMaterialCostOverrideGp ?? project.rawMaterialCostOverrideGp ?? stats.rawMaterialCostGp;
         const resolutionMode = update.resolutionMode ?? project.resolutionMode;
         const requiredHours = update.requiredHours ?? (resolutionMode === "craftingPdf" ? stats.hours : project.requiredHours);
@@ -247,6 +252,9 @@ export default function Home() {
           item,
           itemType: stats.itemType,
           resolutionMode,
+          economicMode,
+          materialSupplyMode,
+          payoutMode,
           trueContractValue,
           listedItemValue: update.marketPriceOverrideGp ?? stats.marketPriceGp,
           laborFee: Math.max(0, trueContractValue - materialCost),
@@ -254,7 +262,7 @@ export default function Home() {
           materialCost,
           requiredHours,
           craftDc,
-          materials: materialRowsFromRecipe(item.materialRecipe, project.materialSupplyMode === "client_supplies" ? "client" : "taark", project.materialSupplyMode === "client_reimburses"),
+          materials: materialRowsFromRecipe(item.materialRecipe, materialSupplyMode === "client_supplies" ? "client" : "taark", materialSupplyMode === "client_reimburses"),
           hoursInvested: Math.min(Math.max(0, update.hoursInvested ?? project.hoursInvested), requiredHours),
         };
       }),
@@ -1451,7 +1459,7 @@ function WorkQueue({
 }: {
   state: CampaignState;
   projects: ForgeProject[];
-  onUpdateProject: (id: string, update: Partial<Pick<ForgeProject, "client" | "trueContractValue" | "requiredHours" | "hoursInvested" | "craftDc" | "priority" | "notes" | "item" | "take10" | "resolutionMode" | "hoursOverride" | "craftDcOverride" | "marketPriceOverrideGp" | "rawMaterialCostOverrideGp">>) => void;
+  onUpdateProject: (id: string, update: Partial<Pick<ForgeProject, "client" | "trueContractValue" | "requiredHours" | "hoursInvested" | "craftDc" | "priority" | "notes" | "item" | "take10" | "resolutionMode" | "hoursOverride" | "craftDcOverride" | "marketPriceOverrideGp" | "rawMaterialCostOverrideGp" | "economicMode" | "materialSupplyMode" | "payoutMode">>) => void;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -1464,6 +1472,8 @@ function WorkQueue({
         const progress = Math.min(100, Math.round((project.hoursInvested / requirements.hours) * 100));
         const remaining = Math.max(0, requirements.hours - project.hoursInvested);
         const editing = editingId === project.id;
+        const isProBono = project.economicMode === "reputation_only" || project.economicMode === "no_revenue";
+        const materialsReimbursed = project.payoutMode === "materials_only" || project.materialSupplyMode === "client_reimburses";
         return (
           <article key={project.id} className={`queue-row ${editing ? "editing" : ""}`} onClick={() => setEditingId(project.id)}>
             <span className="queue-index">{index + 1}</span>
@@ -1477,7 +1487,13 @@ function WorkQueue({
                 <i style={{ width: `${progress}%` }} />
               </div>
               <small>Progress: {progress}% | DC {requirements.dc} | {remaining}h remaining</small>
-              <small>{qualityGoalLabel(stats.qualityGoal)} | {project.take10 ? "Take 10" : "Roll"} | {stats.marketPriceGp.toLocaleString()} gp market | {stats.rawMaterialCostGp.toLocaleString()} gp raw</small>
+              <small>
+                {qualityGoalLabel(stats.qualityGoal)} | {project.take10 ? "Take 10" : "Roll"} | {isProBono
+                  ? materialsReimbursed
+                    ? "PRO BONO | materials reimbursed"
+                    : `PRO BONO | Taark absorbs ${stats.rawMaterialCostGp.toLocaleString()} gp raw materials`
+                  : `${project.trueContractValue.toLocaleString()} gp contract | ${stats.rawMaterialCostGp.toLocaleString()} gp raw materials`}
+              </small>
               {editing && (
                 <div className="queue-editor" onClick={(event) => event.stopPropagation()}>
                   <label>
@@ -1485,8 +1501,32 @@ function WorkQueue({
                     <input value={project.client ?? ""} onChange={(event) => onUpdateProject(project.id, { client: event.target.value })} />
                   </label>
                   <label>
-                    Reward gp
-                    <input type="number" min="0" value={project.trueContractValue} onChange={(event) => onUpdateProject(project.id, { trueContractValue: Number(event.target.value) })} />
+                    Economics
+                    <select
+                      value={isProBono ? "pro_bono" : "paid"}
+                      onChange={(event) => {
+                        if (event.target.value === "pro_bono") {
+                          onUpdateProject(project.id, {
+                            economicMode: "reputation_only",
+                            payoutMode: project.materialSupplyMode === "client_reimburses" ? "materials_only" : "no_payment",
+                            trueContractValue: 0,
+                          });
+                          return;
+                        }
+                        onUpdateProject(project.id, {
+                          economicMode: "profit_bearing",
+                          payoutMode: "true_contract_value",
+                          trueContractValue: project.trueContractValue > 0 ? project.trueContractValue : stats.marketPriceGp,
+                        });
+                      }}
+                    >
+                      <option value="pro_bono">Pro bono</option>
+                      <option value="paid">Paid</option>
+                    </select>
+                  </label>
+                  <label>
+                    {isProBono ? "Reward gp (pro bono)" : "Reward gp"}
+                    <input type="number" min="0" disabled={isProBono} value={project.trueContractValue} onChange={(event) => onUpdateProject(project.id, { trueContractValue: Number(event.target.value) })} />
                   </label>
                   <label>
                     Skill
